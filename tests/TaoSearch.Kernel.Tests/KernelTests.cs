@@ -147,4 +147,35 @@ public class NameIndexTests
         Assert.Equal(50_000, idx.Count);
         Assert.True(idx.TryGet(49_999, out _));
     }
+
+    [Fact]
+    public void MillionEntries_MemoryBudget_Under100MB()
+    {
+        // 架构 §4.4 预算表实测：百万文件（平均名长约 20B）非托管分配 < 100MB（NFR-02 红线）
+        var idx = new NameIndex();
+        var t = DateTimeOffset.UtcNow;
+        for (long i = 0; i < 1_000_000; i++)
+            idx.Upsert(i + 1, 0, $"report_{i:D8}.docx", i, t);   // 18 字节文件名
+
+        Assert.Equal(1_000_000, idx.Count);
+        Assert.True(idx.TryGet(999_999, out _));
+        Assert.True(idx.AllocatedBytes < 100L * 1024 * 1024,
+            $"百万文件非托管分配 {idx.AllocatedBytes / 1024 / 1024}MB，超出 100MB 预算");
+        idx.Dispose();
+    }
+
+    [Fact]
+    public void Search_CaseInsensitive_Utf8()
+    {
+        var idx = new NameIndex();
+        idx.Upsert(1, 0, "Report_Q4.DOCX", 0, DateTimeOffset.UtcNow);
+        idx.Upsert(2, 0, "发票明细.xlsx", 0, DateTimeOffset.UtcNow);
+
+        Assert.Single(idx.Search("report_q4"));      // ASCII 跨大小写
+        Assert.Single(idx.Search("REPORT_Q4.docx"));
+        Assert.Single(idx.Search("发票"));            // 非 ASCII 精确匹配
+        Assert.Empty(idx.Search("发票X"));
+        Assert.Single(idx.Search("Q4", StringComparison.Ordinal)); // 区分大小写仍命中原文大写
+        Assert.Empty(idx.Search("q4", StringComparison.Ordinal));
+    }
 }
