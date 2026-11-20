@@ -26,7 +26,7 @@ jobs:
 
       - name: 单元测试（Windows 真环境跑 MFT/USN 互操作编译产物）
         run: >
-          dotnet test TaoSearch.Kernel.slnx -c Release --no-build --nologo --
+          dotnet test TaoSearch.Kernel.slnx -c Release --no-build --nologo
           logger "trx;LogFileName=taosearch-tests.trx" --results-directory "D:\taosearch-test-results"
 
       - name: 上传测试证据
