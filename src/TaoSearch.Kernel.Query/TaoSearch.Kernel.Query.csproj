@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>TaoSearch.Kernel.Query</RootNamespace>
+  </PropertyGroup>
+</Project>

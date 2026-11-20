@@ -1,0 +1,39 @@
+name: windows-ci
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 还原依赖
+        run: dotnet restore TaoSearch.Kernel.slnx
+
+      - name: 编译（零错零警口径，TreatWarningsAsErrors 已在 Directory.Build.props）
+        run: dotnet build TaoSearch.Kernel.slnx -c Release --no-restore --nologo
+
+      - name: 单元测试（Windows 真环境跑 MFT/USN 互操作编译产物）
+        run: >
+          dotnet test TaoSearch.Kernel.slnx -c Release --no-build --nologo --
+          logger "trx;LogFileName=taosearch-tests.trx" results-directory "D:\taosearch-test-results"
+
+      - name: 上传测试证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-evidence
+          path: D:\taosearch-test-results\**
+          if-no-files-found: warn
+          retention-days: 14

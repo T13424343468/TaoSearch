@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>TaoSearch.Kernel.FsIndex</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TaoSearch.Kernel.Contracts\TaoSearch.Kernel.Contracts.csproj" />
+  </ItemGroup>
+</Project>
