@@ -399,3 +399,146 @@ jobs:
             if ($msg.Length -gt 300) { $msg = $msg.Substring(0, 300) }
             Write-Host ("  K事件[" + $_.TimeCreated.ToString("HH:mm:ss") + "][" + $_.ProviderName + "] " + $msg)
           }
+      - name: 变体L 真身 + 仅顶部区(搜索框/开关/状态行)
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse src real-src-l
+          $mwXaml = @'
+          <Window
+              x:Class="TaoSearch.App.MainWindow"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              Title="TaoSearch">
+            <Grid Background="{ThemeResource PaperBrush}">
+              <StackPanel Margin="16,12,16,8">
+                <TextBox x:Name="SearchBox" PlaceholderText="输入文件名或内容关键词…" FontSize="{StaticResource FontBody}" CornerRadius="{StaticResource InputRadius}" TextChanged="OnSearchTextChanged" />
+                <ToggleSwitch x:Name="ContentToggle" OnContent="含内容" OffContent="仅文件名" Toggled="OnScopeToggled" />
+                <TextBlock x:Name="StatusText" Style="{StaticResource AuxText}" />
+              </StackPanel>
+            </Grid>
+          </Window>
+          '@
+          [System.IO.File]::WriteAllText("real-src-l/TaoSearch.App/MainWindow.xaml", $mwXaml, (New-Object System.Text.UTF8Encoding($false)))
+          $mwCs = @'
+          using Microsoft.UI.Xaml;
+
+          namespace TaoSearch.App;
+
+          public sealed partial class MainWindow : Window
+          {
+              public MainWindow()
+              {
+                  InitializeComponent();
+                  Title = "TaoSearch";
+              }
+              private void OnSearchTextChanged(object sender, RoutedEventArgs e) { }
+              private void OnScopeToggled(object sender, RoutedEventArgs e) { }
+          }
+          '@
+          [System.IO.File]::WriteAllText("real-src-l/TaoSearch.App/MainWindow.xaml.cs", $mwCs, (New-Object System.Text.UTF8Encoding($false)))
+          dotnet publish real-src-l/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o real-l-out --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体L发布失败"; exit 1 }
+          $p = Start-Process -FilePath "real-l-out/TaoSearch.App.exe" -WorkingDirectory "real-l-out" -PassThru
+          Start-Sleep -Seconds 12
+          $alive = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体L: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "TaoSearch.App" -Force -ErrorAction SilentlyContinue
+          } else { try { Write-Host ("变体L: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体L: 进程已退出" } }
+
+      - name: 变体M 真身 + 仅导航区(NavigationView)
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse src real-src-m
+          $mwXaml = @'
+          <Window
+              x:Class="TaoSearch.App.MainWindow"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              Title="TaoSearch">
+            <Grid>
+              <NavigationView x:Name="Nav" PaneDisplayMode="Top" SelectionChanged="OnNavChanged">
+                <NavigationView.MenuItems>
+                  <NavigationViewItem Content="搜索" Tag="main" IsSelected="True" />
+                  <NavigationViewItem Content="设置" Tag="settings" />
+                </NavigationView.MenuItems>
+              </NavigationView>
+              <ContentControl x:Name="OverlayHost" Visibility="Collapsed" />
+            </Grid>
+          </Window>
+          '@
+          [System.IO.File]::WriteAllText("real-src-m/TaoSearch.App/MainWindow.xaml", $mwXaml, (New-Object System.Text.UTF8Encoding($false)))
+          $mwCs = @'
+          using Microsoft.UI.Xaml;
+          using Microsoft.UI.Xaml.Controls;
+
+          namespace TaoSearch.App;
+
+          public sealed partial class MainWindow : Window
+          {
+              public MainWindow()
+              {
+                  InitializeComponent();
+                  Title = "TaoSearch";
+              }
+              private void OnNavChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args) { }
+          }
+          '@
+          [System.IO.File]::WriteAllText("real-src-m/TaoSearch.App/MainWindow.xaml.cs", $mwCs, (New-Object System.Text.UTF8Encoding($false)))
+          dotnet publish real-src-m/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o real-m-out --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体M发布失败"; exit 1 }
+          $p = Start-Process -FilePath "real-m-out/TaoSearch.App.exe" -WorkingDirectory "real-m-out" -PassThru
+          Start-Sleep -Seconds 12
+          $alive = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体M: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "TaoSearch.App" -Force -ErrorAction SilentlyContinue
+          } else { try { Write-Host ("变体M: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体M: 进程已退出" } }
+
+      - name: 变体N 真身 + 仅结果列表区(ListView无模板)
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse src real-src-n
+          $mwXaml = @'
+          <Window
+              x:Class="TaoSearch.App.MainWindow"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              Title="TaoSearch">
+            <Grid>
+              <ScrollViewer Margin="16,0,16,8">
+                <ListView x:Name="ResultList" SelectionChanged="OnResultSelected" />
+              </ScrollViewer>
+            </Grid>
+          </Window>
+          '@
+          [System.IO.File]::WriteAllText("real-src-n/TaoSearch.App/MainWindow.xaml", $mwXaml, (New-Object System.Text.UTF8Encoding($false)))
+          $mwCs = @'
+          using Microsoft.UI.Xaml;
+          using Microsoft.UI.Xaml.Controls;
+
+          namespace TaoSearch.App;
+
+          public sealed partial class MainWindow : Window
+          {
+              public MainWindow()
+              {
+                  InitializeComponent();
+                  Title = "TaoSearch";
+              }
+              private void OnResultSelected(object sender, SelectionChangedEventArgs e) { }
+          }
+          '@
+          [System.IO.File]::WriteAllText("real-src-n/TaoSearch.App/MainWindow.xaml.cs", $mwCs, (New-Object System.Text.UTF8Encoding($false)))
+          dotnet publish real-src-n/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o real-n-out --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体N发布失败"; exit 1 }
+          $p = Start-Process -FilePath "real-n-out/TaoSearch.App.exe" -WorkingDirectory "real-n-out" -PassThru
+          Start-Sleep -Seconds 12
+          $alive = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体N: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "TaoSearch.App" -Force -ErrorAction SilentlyContinue
+          } else { try { Write-Host ("变体N: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体N: 进程已退出" } }
