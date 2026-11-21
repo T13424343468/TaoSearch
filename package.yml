@@ -1,0 +1,29 @@
+# TaoSearch 包体基线清单（M1 前置，pack-msix.ps1 的机器可读口径）
+# 零第三方依赖令：打包仅用 Windows SDK makeappx + .NET SDK；未签名侧载，正式签名另行授权。
+package:
+  name: TaoSearch.Service
+  displayName: TaoSearch 本地搜索服务
+  identity: Tao.TaoSearch.Service
+  publisher: CN=Tao
+  version: 0.1.0.1            # 对齐版本台账；只增不重
+  architecture: win-x64
+  signing: unsigned-sideload  # M1 口径：开发者模式侧载；签名属敏感操作另行授权
+
+build:
+  project: src/TaoSearch.Service/TaoSearch.Service.csproj
+  configuration: Release
+  frameworkDependent: true    # 体积优先：框架依赖，不内嵌运行时
+  selfContained: false
+
+contents:
+  - AppxManifest.xml
+  - TaoSearch.Service.exe
+  - assets/logo.png
+
+artifacts:
+  output: artifacts/msix
+  filename: TaoSearch.Service-0.1.0.1-unsigned.msix
+
+budgets:                      # 包体基线（体积/占用第一优先级，超线即回炉）
+  msixSizeKB: 512             # 未签名包目标上限（框架依赖）
+  startupWorkingSetMB: 50     # 服务常驻内存目标上限
