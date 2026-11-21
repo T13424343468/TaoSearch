@@ -54,6 +54,13 @@ dotnet publish $serviceProject -c Release -r win-x64 --self-contained false `
     -o $publishDir --nologo
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish 失败（exit $LASTEXITCODE）" }
 
+# ---- 安装器运行时新标准（2026-11-21 老板令）：打包产物附运行时保障脚本，安装期执行 ----
+# 口径：包不内置运行时；装时全盘检测（注册表+统一目录），无则联网下载官方运行时装进
+# 系统统一 .NET 目录；无网给说人话重试指引。详见 scripts/EnsureRuntime.ps1。
+$ensureRuntime = Join-Path $PSScriptRoot "EnsureRuntime.ps1"
+if (-not (Test-Path $ensureRuntime)) { throw "找不到运行时保障脚本：$ensureRuntime" }
+Copy-Item -Path $ensureRuntime -Destination (Join-Path $publishDir "EnsureRuntime.ps1") -Force
+
 # ---- AppxManifest（未签名侧载用；包名与版本号对齐版本台账） ----
 $manifest = @'
 <?xml version="1.0" encoding="utf-8"?>
