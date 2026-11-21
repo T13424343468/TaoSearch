@@ -24,7 +24,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path ".sdktool" | Out-Null
           Set-Content ".sdktool\tool.csproj" '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Library</OutputType></PropertyGroup><ItemGroup><PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.*" /></ItemGroup></Project>'
           dotnet restore ".sdktool\tool.csproj" --nologo
-          $makeappx = Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.windows.sdk.build.tools" -Recurse -Filter makeappx.exe |
+          $global = (dotnet nuget locals global-packages --list) -replace "^global-packages:\s*",""
+          Write-Host "NuGet 全局包目录：$global"
+          $makeappx = Get-ChildItem $global -Recurse -Filter makeappx.exe |
             Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1
           if (-not $makeappx) { Write-Host "::error::makeappx 获取失败"; exit 1 }
           Write-Host "makeappx: $($makeappx.FullName)"
