@@ -644,3 +644,47 @@ jobs:
             Write-Host "变体Q: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
             Stop-Process -Name "TaoSearch.App" -Force -ErrorAction SilentlyContinue
           } else { try { Write-Host ("变体Q: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体Q: 进程已退出" } }
+
+      - name: 变体R 真身+补XamlControlsResources+仅导航区
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse src real-src-r
+          $appPath = "real-src-r/TaoSearch.App/App.xaml"
+          $app = [System.IO.File]::ReadAllText($appPath)
+          $needle = '<ResourceDictionary.MergedDictionaries>'
+          if (-not $app.Contains($needle)) { Write-Host "::error::变体R未找到合并字典锚点"; exit 1 }
+          $inject = $needle + "`r`n" + '                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />'
+          [System.IO.File]::WriteAllText($appPath, $app.Replace($needle, $inject), (New-Object System.Text.UTF8Encoding($false)))
+
+          dotnet publish real-src-r/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o real-r-out --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体R发布失败"; exit 1 }
+          $p = Start-Process -FilePath "real-r-out/TaoSearch.App.exe" -WorkingDirectory "real-r-out" -PassThru
+          Start-Sleep -Seconds 12
+          $alive = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体R: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "TaoSearch.App" -Force -ErrorAction SilentlyContinue
+          } else { try { Write-Host ("变体R: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体R: 进程已退出" } }
+
+      - name: 变体S 真身+补XamlControlsResources+完整主窗
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse src real-src-s
+          $appPath = "real-src-s/TaoSearch.App/App.xaml"
+          $app = [System.IO.File]::ReadAllText($appPath)
+          $needle = '<ResourceDictionary.MergedDictionaries>'
+          if (-not $app.Contains($needle)) { Write-Host "::error::变体S未找到合并字典锚点"; exit 1 }
+          $inject = $needle + "`r`n" + '                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />'
+          [System.IO.File]::WriteAllText($appPath, $app.Replace($needle, $inject), (New-Object System.Text.UTF8Encoding($false)))
+
+          dotnet publish real-src-s/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o real-s-out --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体S发布失败"; exit 1 }
+          $p = Start-Process -FilePath "real-s-out/TaoSearch.App.exe" -WorkingDirectory "real-s-out" -PassThru
+          Start-Sleep -Seconds 12
+          $alive = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体S: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "TaoSearch.App" -Force -ErrorAction SilentlyContinue
+          } else { try { Write-Host ("变体S: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体S: 进程已退出" } }
