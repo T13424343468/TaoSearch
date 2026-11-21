@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>TaoSearch.Service</RootNamespace>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 </Project>

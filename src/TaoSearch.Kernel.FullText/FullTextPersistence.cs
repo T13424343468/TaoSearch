@@ -13,6 +13,9 @@ public static class FullTextPersistence
     /// <summary>热缓存预算：6MB（架构 E-02 决议，恒定不随语料增长）。</summary>
     public const long CacheBudgetBytes = 6L * 1024 * 1024;
 
+    /// <summary>后台落盘限速：10MB/s（全文三项决议之三，M4 落地；避免写盘挤占前台 IO）。</summary>
+    public const long WriteRateLimitBytesPerSecond = ThrottledWriteStream.DefaultBytesPerSecond;
+
     public static void SaveCheckpoint(InvertedIndex index, string snapshotPath, Stream journal)
     {
         ArgumentNullException.ThrowIfNull(index);
@@ -20,8 +23,9 @@ public static class FullTextPersistence
         Directory.CreateDirectory(dir);
         string tmp = snapshotPath + ".tmp";
         using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+        using (var throttled = new ThrottledWriteStream(fs, WriteRateLimitBytesPerSecond))
         {
-            index.SaveSnapshot(fs);
+            index.SaveSnapshot(throttled);
         }
         if (File.Exists(snapshotPath)) File.Replace(tmp, snapshotPath, null);
         else File.Move(tmp, snapshotPath);

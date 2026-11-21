@@ -90,15 +90,7 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
         }
     }
 
-    private static bool Matches(FileEvent e, FileEventFilter f)
-    {
-        if ((f.Kinds & e.Kind) == 0) return false;
-        if (f.PathPrefixes.Count > 0 && !f.PathPrefixes.Any(p => e.Path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
-            return false;
-        if (f.Extensions is { Count: > 0 } && !f.Extensions.Contains(Path.GetExtension(e.Path), StringComparer.OrdinalIgnoreCase))
-            return false;
-        return true;
-    }
+    private static bool Matches(FileEvent e, FileEventFilter f) => f.Matches(e); // 契约层单源（M4 冻结）
 
     private static FileChangeKind? MapReason(uint reason)
     {
