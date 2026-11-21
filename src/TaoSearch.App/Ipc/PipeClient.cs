@@ -62,7 +62,7 @@ public sealed class PipeClient : IDisposable
             var respPayload = new byte[respLen];
             await ReadExactlyAsync(pipe, respPayload, ct);
 
-            return (TResp)JsonSerializer.Deserialize(respPayload, AppJsonContext.Default.Options.GetTypeInfo(typeof(TResp)))
+            return JsonSerializer.Deserialize(respPayload, AppJsonContext.Default.Options.GetTypeInfo(typeof(TResp))) as TResp
                 ?? throw new InvalidDataException($"empty response for {method}");
         }
         finally { _gate.Release(); }
