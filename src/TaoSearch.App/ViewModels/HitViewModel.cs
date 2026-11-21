@@ -1,9 +1,7 @@
-using System.ComponentModel;
-
 namespace TaoSearch.App.ViewModels;
 
-/// <summary>结果行 ViewModel：列表绑定单元，预览高亮区间转高亮段。</summary>
-public sealed class HitViewModel : INotifyPropertyChanged
+/// <summary>结果行 ViewModel：列表绑定单元（属性全部 init-only，无需变更通知），预览高亮区间转高亮段。</summary>
+public sealed class HitViewModel
 {
     public required long FileReference { get; init; }
     public required string Path { get; init; }
@@ -17,8 +15,6 @@ public sealed class HitViewModel : INotifyPropertyChanged
 
     /// <summary>预览高亮段（Snippet 切片，IsMatch 标记命中区间）。</summary>
     public IReadOnlyList<PreviewSegment> Segments { get; init; } = [];
-
-    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 /// <summary>预览高亮段。</summary>

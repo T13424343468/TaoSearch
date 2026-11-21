@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using TaoSearch.App.Services;
+using TaoSearch.Kernel.Contracts;
 
 namespace TaoSearch.App.ViewModels;
 

@@ -63,19 +63,19 @@ public sealed class PipeClient : IDisposable
             var respPayload = new byte[respLen];
             await ReadExactlyAsync(pipe, respPayload, ct);
 
-            return JsonSerializer.Deserialize(respPayload, AppJsonContext.Default.Options.GetTypeInfo<TResp>())
+            return JsonSerializer.Deserialize<TResp>(respPayload, AppJsonContext.Default.Options)
                 ?? throw new InvalidDataException($"empty response for {method}");
         }
         finally { _gate.Release(); }
     }
 
-    private static byte[] BuildFrame(IpcMethod method, byte[] payload)
+    private byte[] BuildFrame(IpcMethod method, byte[] payload)
     {
         var frame = new byte[12 + payload.Length];
         BitConverter.GetBytes(payload.Length + 12).CopyTo(frame, 0);
         BitConverter.GetBytes(IpcProtocol.Version).CopyTo(frame, 4);
         BitConverter.GetBytes((ushort)method).CopyTo(frame, 6);
-        BitConverter.GetBytes(0u).CopyTo(frame, 8);
+        BitConverter.GetBytes(_seq++).CopyTo(frame, 8);
         payload.CopyTo(frame, 12);
         return frame;
     }
