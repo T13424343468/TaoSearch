@@ -287,14 +287,16 @@ public sealed class StoreTests
             saveSw.Stop();
 
             var restoreSw = System.Diagnostics.Stopwatch.StartNew();
-            using var loaded = NameIndex.LoadSnapshot(
-                new FileStream(snapPath, FileMode.Open, FileAccess.Read, FileShare.Read));
-            restoreSw.Stop();
+            using (var fs = new FileStream(snapPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var loaded = NameIndex.LoadSnapshot(fs))
+            {
+                restoreSw.Stop();
 
-            _output.WriteLine($"[T3] 百万文件快照：保存 {saveSw.ElapsedMilliseconds}ms，恢复 {restoreSw.ElapsedMilliseconds}ms，" +
-                              $"体积 {new FileInfo(snapPath).Length / 1024}KB，恢复后内存 {loaded.AllocatedBytes / 1024 / 1024}MB");
-            Assert.Equal(count, loaded.Count);
-            Assert.Contains(500_010, loaded.Search("file_0500000"));
+                _output.WriteLine($"[T3] 百万文件快照：保存 {saveSw.ElapsedMilliseconds}ms，恢复 {restoreSw.ElapsedMilliseconds}ms，" +
+                                  $"体积 {new FileInfo(snapPath).Length / 1024}KB，恢复后内存 {loaded.AllocatedBytes / 1024 / 1024}MB");
+                Assert.Equal(count, loaded.Count);
+                Assert.Contains(500_010, loaded.Search("file_0500000"));
+            }
             Assert.True(restoreSw.ElapsedMilliseconds < 30_000, $"恢复耗时 {restoreSw.ElapsedMilliseconds}ms 超出合理上限");
         }
         finally

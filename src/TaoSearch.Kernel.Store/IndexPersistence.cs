@@ -120,7 +120,8 @@ public static class IndexPersistence
 
         if (File.Exists(snapshotPath))
         {
-            using (var fs = new FileStream(snapshotPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            // FileShare.ReadWrite：容忍活跃写者（Windows 下 FileShare.Read 会拒绝并发写句柄）
+            using (var fs = new FileStream(snapshotPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
                 var index = NameIndex.LoadSnapshot(fs);
                 engine = new FsIndexEngine(index);
@@ -138,7 +139,8 @@ public static class IndexPersistence
         long torn = 0;
         if (File.Exists(journalPath))
         {
-            using (var fs = new FileStream(journalPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            // FileShare.ReadWrite：sink 未轮转时写句柄仍持有 journal，恢复侧只读不排斥
+            using (var fs = new FileStream(journalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
                 var replay = JournalWriter.Replay(fs, e =>
                 {
