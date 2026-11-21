@@ -94,8 +94,16 @@ $manifest = @'
 $staging = Join-Path $OutputDir "staging"
 New-Item -ItemType Directory -Force -Path $staging | Out-Null
 Set-Content -Path (Join-Path $staging "AppxManifest.xml") -Value $manifest -Encoding UTF8
-Copy-Item -Path (Join-Path $ProjectRoot "artifacts\msix\assets\*") -Destination $staging -Force -ErrorAction SilentlyContinue
+# assets 必须位于 staging\assets\ 子目录（清单引用 assets\logo.png）
+New-Item -ItemType Directory -Force -Path (Join-Path $staging "assets") | Out-Null
+Copy-Item -Path (Join-Path $ProjectRoot "artifacts\msix\assets\*") -Destination (Join-Path $staging "assets") -Force -ErrorAction SilentlyContinue
 Copy-Item -Path (Join-Path $publishDir "*") -Destination $staging -Recurse -Force
+
+# ---- 打包前诊断：staging 内容与关键文件存在性 ----
+Write-Host "---- staging 内容 ----"
+Get-ChildItem $staging -Recurse | ForEach-Object { Write-Host $_.FullName.Substring($staging.Length) }
+Write-Host "TaoSearch.Service.exe 存在：$(Test-Path (Join-Path $staging 'TaoSearch.Service.exe'))"
+Write-Host "assets\logo.png 存在：$(Test-Path (Join-Path $staging 'assets\logo.png'))"
 
 # ---- 打包 MSIX（未签名） ----
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
