@@ -74,6 +74,72 @@ jobs:
           Get-ChildItem installer/publish -File | ForEach-Object { Write-Host ("  {0}  {1:N0} 字节" -f $_.Name, $_.Length) }
           ./installer/msi/diag-app.ps1 -ExePath installer/publish/TaoSearch.App.exe -WorkingDir installer/publish -Start
 
+      - name: 清单变体矩阵实验（定位 SxS 触发源：清单内容 / 清单嵌入 / WinUI3 因素）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $root = "variants"
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+
+          # V5 对照组: Service 无清单 apphost 直接启动 (区分"清单问题"与"apphost/环境问题")
+          ./installer/msi/diag-app.ps1 -ExePath installer/publish/TaoSearch.Service.exe -Start
+
+          # V0: 最小控制台应用 + 同一份清单 (隔离 WinUI3 因素)
+          $v0 = Join-Path $root "v0"
+          New-Item -ItemType Directory -Path $v0 -Force | Out-Null
+          Copy-Item src/TaoSearch.App/app.manifest (Join-Path $v0 "app.manifest")
+          @'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+</Project>
+'@ | Out-File (Join-Path $v0 "ManifestProbe.csproj") -Encoding utf8
+          'System.Console.WriteLine("probe ok");' | Out-File (Join-Path $v0 "Program.cs") -Encoding utf8
+          dotnet publish (Join-Path $v0 "ManifestProbe.csproj") -c Release -r win-x64 --self-contained false -o "$root/v0-out" --nologo
+          ./installer/msi/diag-app.ps1 -ExePath "$root/v0-out/ManifestProbe.exe" -Start
+
+          # V2: 无清单发布 (隔离清单嵌入因素)
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v2-out" -p:ApplicationManifest= --nologo
+          ./installer/msi/diag-app.ps1 -ExePath "$root/v2-out/TaoSearch.App.exe" -Start
+
+          # V3: VS 标准风格清单 (trustInfo + compatibility + windowsSettings)
+          $v3m = Join-Path $root "vs-style.manifest"
+          @'
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="TaoSearch.App"/>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Guid="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
+    </application>
+  </compatibility>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>
+'@ | Out-File $v3m -Encoding utf8
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v3-out" -p:ApplicationManifest=$v3m --nologo
+          ./installer/msi/diag-app.ps1 -ExePath "$root/v3-out/TaoSearch.App.exe" -Start
+
+          # V4: 原清单 + assemblyIdentity 补 type="win32"
+          $v4m = Join-Path $root "typed.manifest"
+          (Get-Content src/TaoSearch.App/app.manifest -Raw) -replace '<assemblyIdentity version="1.0.0.0" name="TaoSearch.App"/>', '<assemblyIdentity type="win32" version="1.0.0.0" name="TaoSearch.App"/>' | Out-File $v4m -Encoding utf8
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v4-out" -p:ApplicationManifest=$v4m --nologo
+          ./installer/msi/diag-app.ps1 -ExePath "$root/v4-out/TaoSearch.App.exe" -Start
+
       - name: 模拟安装验证（静默装→验文件注册表→启动→卸载干净，四步留痕）
         shell: pwsh
         run: |
