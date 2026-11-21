@@ -18,6 +18,15 @@ public sealed partial class MainWindow : Window
         ViewModel = new MainViewModel(_gateway);
         SettingsViewModel = new SettingsViewModel(_gateway);
         Title = "TaoSearch";
+
+        // x:Bind 在 Window 根不可用（生成代码要求 FrameworkElement），改 code-behind 接线
+        StatusText.Text = ViewModel.StatusText;
+        ViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(MainViewModel.StatusText))
+                StatusText.Text = ViewModel.StatusText;
+        };
+        ResultList.ItemsSource = ViewModel.Hits;
     }
 
     private void OnSearchTextChanged(object sender, RoutedEventArgs e)

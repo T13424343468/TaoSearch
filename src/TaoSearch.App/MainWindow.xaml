@@ -35,13 +35,11 @@
         <!-- 状态行 -->
         <TextBlock Grid.Row="1" x:Name="StatusText"
                    Margin="18,0,16,8"
-                   Style="{StaticResource AuxText}"
-                   Text="{x:Bind ViewModel.StatusText, Mode=OneWay}" />
+                   Style="{StaticResource AuxText}" />
 
-        <!-- 结果列表 -->
+        <!-- 结果列表（x:Bind 在 Window 根不可用：生成代码要求 FrameworkElement，改 code-behind 接线） -->
         <ScrollViewer Grid.Row="2" Margin="16,0,16,8">
-            <ListView x:Name="ResultList" ItemsSource="{x:Bind ViewModel.Hits, Mode=OneWay}"
-                      SelectionChanged="OnResultSelected">
+            <ListView x:Name="ResultList" SelectionChanged="OnResultSelected">
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="vm:HitViewModel">
                         <Border Style="{StaticResource CardBorder}" Margin="0,0,0,8">
