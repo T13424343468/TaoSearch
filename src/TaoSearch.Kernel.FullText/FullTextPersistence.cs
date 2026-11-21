@@ -31,9 +31,17 @@ public static class FullTextPersistence
 
     public static (InvertedIndex Index, int FramesApplied, long TruncatedTailBytes) Restore(string snapshotPath, Stream journal)
     {
-        InvertedIndex index = File.Exists(snapshotPath)
-            ? InvertedIndex.LoadSnapshot(new FileStream(snapshotPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            : new InvertedIndex();
+        InvertedIndex index;
+        if (File.Exists(snapshotPath))
+        {
+            // 快照读入内存后即释放句柄：Windows 上不释放会占住文件，导致目录清理失败（云 CI 实测暴露）
+            using var snapStream = new FileStream(snapshotPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            index = InvertedIndex.LoadSnapshot(snapStream);
+        }
+        else
+        {
+            index = new InvertedIndex();
+        }
 
         int frames = 0;
         long torn = 0;
