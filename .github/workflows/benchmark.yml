@@ -3,7 +3,7 @@ name: benchmark
 on:
   workflow_dispatch:
   push:
-    branches: [ 'bench/**' ]
+    branches: ['bench/**']
 
 jobs:
   real-volume-bench:
