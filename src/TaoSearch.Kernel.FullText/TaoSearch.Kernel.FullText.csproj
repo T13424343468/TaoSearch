@@ -2,4 +2,7 @@
   <PropertyGroup>
     <RootNamespace>TaoSearch.Kernel.FullText</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TaoSearch.Kernel.Contracts\TaoSearch.Kernel.Contracts.csproj" />
+  </ItemGroup>
 </Project>
