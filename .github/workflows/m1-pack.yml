@@ -54,7 +54,7 @@ jobs:
       - name: 构建 MSI + 引导安装器（微信风格 MSI + 运行时联网装）
         shell: pwsh
         run: |
-          ./installer/msi/package.ps1 -PublishDir installer/publish -OutDir artifacts/installer -WixExe "$env:WIXEXE"
+          ./installer/msi/package.ps1 -PublishDir installer/publish -OutDir artifacts/installer -WixExe "$env:WIXEXE" -BalExtPath "$env:BALEXT" -UtilExtPath "$env:UTILEXT"
           if ($LASTEXITCODE -ne 0) { Write-Host "::error::安装器构建失败"; exit 1 }
 
       - name: 模拟安装验证（静默装→验文件注册表→启动→卸载干净，四步留痕）
