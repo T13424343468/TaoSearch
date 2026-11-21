@@ -77,7 +77,15 @@ public sealed record FileEvent
     public long? ParentReference { get; init; }
 }
 
-public enum FileChangeKind { Created, Renamed, Deleted, ContentModified }
+[Flags]
+public enum FileChangeKind
+{
+    /// <summary>新建（位值 M4 冻结：原非 Flags 枚举 Created=0 致按位过滤恒假，修真缺陷）。</summary>
+    Created = 1,
+    Renamed = 2,
+    Deleted = 4,
+    ContentModified = 8,
+}
 
 /// <summary>文件事件订阅（预埋接口二：未来管家/文件管理器挂接点）。</summary>
 public interface IFileEventSource
@@ -92,6 +100,32 @@ public sealed record FileEventFilter
     public IReadOnlyList<string>? Extensions { get; init; }
     public FileChangeKind Kinds { get; init; } = FileChangeKind.Created | FileChangeKind.Renamed
         | FileChangeKind.Deleted | FileChangeKind.ContentModified;
+
+    /// <summary>
+    /// 过滤器匹配语义（M4 契约冻结，2026-11-21）：内核与外部订阅者共用单源实现。
+    /// ①Kind 按位与；②前缀 OrdinalIgnoreCase 且目录边界对齐（"Downloads" 不误吞 "DownloadsBackup"，
+    /// 路径等于前缀或前缀后紧跟目录分隔符才算命中）；③扩展名 OrdinalIgnoreCase
+    /// （调用方传带点形式 ".zip"，内部按 Path.GetExtension 对齐，不区分 .ZIP/.zip）。
+    /// 语义变更须升 IpcProtocol.Version。
+    /// </summary>
+    public bool Matches(FileEvent e)
+    {
+        if ((Kinds & e.Kind) == 0) return false;
+        if (PathPrefixes.Count > 0)
+        {
+            bool prefixHit = PathPrefixes.Any(p =>
+            {
+                if (!e.Path.StartsWith(p, StringComparison.OrdinalIgnoreCase)) return false;
+                // 契约路径为 Windows 形态，分隔符显式判定（不依赖运行平台 Path API）
+                return e.Path.Length == p.Length
+                    || e.Path[p.Length] is '\\' or '/';
+            });
+            if (!prefixHit) return false;
+        }
+        if (Extensions is { Count: > 0 } && !Extensions.Contains(Path.GetExtension(e.Path), StringComparer.OrdinalIgnoreCase))
+            return false;
+        return true;
+    }
 }
 
 /// <summary>解析器契约（预埋接口三：新格式注册即插，架构 §5.1）。</summary>
