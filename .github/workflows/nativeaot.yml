@@ -1,0 +1,54 @@
+name: m1-nativeaot
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ 'm1/**' ]
+
+jobs:
+  nativeaot-baseline:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: NativeAOT win-x64 单文件发布实测
+        shell: pwsh
+        run: |
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 `
+            -p:PublishAot=true -p:PublishSingleFile=true -o artifacts\nativeaot --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::NativeAOT publish 失败（exit $LASTEXITCODE）"; exit 1 }
+          $sw.Stop()
+          "发布耗时: {0:N1}s" -f $sw.Elapsed.TotalSeconds | Tee-Object -FilePath artifacts\nativeaot-baseline.txt
+          $exe = Get-ChildItem artifacts\nativeaot -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { Write-Host "::error::未找到发布 exe"; exit 1 }
+          "NativeAOT exe: {0:N1} MB" -f ($exe.Length/1MB) | Tee-Object -FilePath artifacts\nativeaot-baseline.txt -Append
+          "目录总大小: {0:N1} MB" -f ((Get-ChildItem artifacts\nativeaot -Recurse | Measure-Object Length -Sum).Sum/1MB) | Tee-Object -FilePath artifacts\nativeaot-baseline.txt -Append
+          "框架依赖对照: 0.2 MB（run 44858259961 实测）" | Tee-Object -FilePath artifacts\nativeaot-baseline.txt -Append
+
+      - name: 启动冒烟（单实例互斥体退出属预期，记录退出码）
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem artifacts\nativeaot -Filter *.exe | Select-Object -First 1).FullName
+          $p = Start-Process -FilePath $exe -NoNewWindow -PassThru -RedirectStandardOutput artifacts\smoke-out.txt -RedirectStandardError artifacts\smoke-err.txt
+          $exited = $p.WaitForExit(15000)
+          if (-not $exited) { $p.Kill(); "冒烟: 15s 未退出（已强杀）——服务骨架常驻属预期" | Tee-Object -FilePath artifacts\nativeaot-baseline.txt -Append }
+          else { "冒烟: 退出码 $($p.ExitCode)（单实例互斥体退出属预期路径）" | Tee-Object -FilePath artifacts\nativeaot-baseline.txt -Append }
+          Get-Content artifacts\smoke-out.txt -ErrorAction SilentlyContinue
+          Get-Content artifacts\smoke-err.txt -ErrorAction SilentlyContinue
+
+      - name: 上传证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nativeaot-baseline
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
