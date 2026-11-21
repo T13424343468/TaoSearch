@@ -11,7 +11,10 @@ param(
     [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
 
     [Parameter(Mandatory = $false)]
-    [string]$OutputDir = (Join-Path $ProjectRoot "artifacts\msix")
+    [string]$OutputDir = (Join-Path $ProjectRoot "artifacts\msix"),
+
+    [Parameter(Mandatory = $false)]
+    [string]$MakeAppxPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,8 +25,13 @@ if (-not (Test-Path $serviceProject)) {
     throw "找不到服务工程：$serviceProject"
 }
 
-# makeappx 探测（Windows SDK 随 Visual Studio / 独立 SDK 安装）
-$makeappx = Get-Command makeappx.exe -ErrorAction SilentlyContinue
+# makeappx 探测：优先用外部传入路径（CI 按需取用），否则找 Windows SDK
+$makeappx = $null
+if ($MakeAppxPath -and (Test-Path $MakeAppxPath)) { $makeappx = $MakeAppxPath }
+if (-not $makeappx) {
+    $makeappx = Get-Command makeappx.exe -ErrorAction SilentlyContinue
+    if ($makeappx) { $makeappx = $makeappx.Source }
+}
 if (-not $makeappx) {
     $sdkRoots = @("${env:ProgramFiles(x86)}\Windows Kits\10\bin") |
         Where-Object { $_ -and (Test-Path $_) }
