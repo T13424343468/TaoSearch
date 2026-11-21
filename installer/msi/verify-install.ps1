@@ -62,7 +62,17 @@ Log "STEP2 文件与注册表验证通过"
 
 # ---- 第 3 步: 启动核心页 ----
 Log "STEP3 启动主程序"
-Start-Process -FilePath (Join-Path $InstallDir $exeName)
+# 诊断留痕: 主程序大小 + 已装 WinAppSDK 运行时包 + SideBySide 事件日志 (启动失败时指明缺失组件)
+$exePath = Join-Path $InstallDir $exeName
+Log ("STEP3 主程序大小: " + (Get-Item $exePath).Length + " 字节")
+Get-AppxPackage *WindowsAppRuntime* -ErrorAction SilentlyContinue | ForEach-Object { Log ("STEP3 运行时包: " + $_.Name + " " + $_.Version) }
+Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='SideBySide'} -MaxEvents 3 -ErrorAction SilentlyContinue | ForEach-Object { Log ("STEP3 SideBySide事件: " + ($_.Message -replace "\s+", " ")) }
+try {
+    Start-Process -FilePath $exePath -WorkingDirectory $InstallDir
+} catch {
+    Log ("STEP3 启动异常: " + $_.Exception.Message)
+    throw
+}
 Start-Sleep -Seconds 8
 $proc = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue
 Assert ($null -ne $proc) "主程序进程存活（核心页可达）"
