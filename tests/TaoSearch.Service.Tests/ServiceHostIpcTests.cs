@@ -13,7 +13,7 @@ namespace TaoSearch.Service.Tests;
 /// 端到端 IPC 测试：真实 NamedPipeServerStream/NamedPipeClientStream 对接 ServiceHost.DispatchAsync，
 /// 帧协议 [4B 长度][2B 版本][2B 方法号][4B 序号][载荷 JSON] 与契约冻结版一致。
 /// </summary>
-public class ServiceHostIpcTests : IAsyncDisposable
+public class ServiceHostIpcTests : IDisposable
 {
     private static readonly DateTimeOffset T1 = new(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
 
@@ -57,11 +57,12 @@ public class ServiceHostIpcTests : IAsyncDisposable
         _pump = Task.Run(PumpAsync);
     }
 
-    public async ValueTask DisposeAsync()
+    /// <summary>xUnit v2 不调用 IAsyncDisposable.DisposeAsync，改用 IDisposable 确保逐测试释放管道与内容索引器。</summary>
+    public void Dispose()
     {
         try { _client.Dispose(); } catch (Exception) { }
         _server.Dispose();
-        try { await _pump; } catch (Exception) { }
+        try { _pump.Wait(TimeSpan.FromSeconds(5)); } catch (Exception) { }
         _content.Dispose();
         try { Directory.Delete(_tempDir, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
@@ -144,6 +145,31 @@ public class ServiceHostIpcTests : IAsyncDisposable
     private static T ReadJson<T>(byte[] payload) =>
         JsonSerializer.Deserialize<T>(payload) ?? throw new InvalidOperationException("载荷为空");
 
+    /// <summary>挂起定位：给关键 await 装 15 秒分步计时器，超时抛出带步骤标签的异常而非无限等待。</summary>
+    private static async Task StepAsync(string step, Func<Task> action)
+    {
+        try
+        {
+            await action().WaitAsync(TimeSpan.FromSeconds(15)).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            throw new TimeoutException($"[挂起定位] 步骤 {step} 15 秒未完成");
+        }
+    }
+
+    private static async Task<T> StepAsync<T>(string step, Func<Task<T>> action)
+    {
+        try
+        {
+            return await action().WaitAsync(TimeSpan.FromSeconds(15)).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            throw new TimeoutException($"[挂起定位] 步骤 {step} 15 秒未完成");
+        }
+    }
+
     [Fact]
     public async Task Search_MultiFrameStreamed_SeqAndMethodEchoed()
     {
@@ -187,9 +213,10 @@ public class ServiceHostIpcTests : IAsyncDisposable
     {
         var filter = new FileEventFilter { Kinds = FileChangeKind.Created };
         byte[] subPayload = JsonSerializer.SerializeToUtf8Bytes(new SubscribeRequest { Filter = filter });
-        await SendAsync((ushort)IpcMethod.SubscribeEvents, seq: 5, subPayload);
+        await StepAsync("1-发送Subscribe", () => SendAsync((ushort)IpcMethod.SubscribeEvents, seq: 5, subPayload));
 
-        var (method, seq, body) = await ReadFrameAsync();
+        var (method, seq, body) = await StepAsync<(ushort, uint, byte[])>("2-读SubscribeAck",
+            () => ReadFrameAsync());
         Assert.Equal((ushort)IpcMethod.SubscribeEvents, method);
         Assert.Equal(5u, seq);
         var ack = ReadJson<SubscribeAck>(body);
@@ -203,9 +230,10 @@ public class ServiceHostIpcTests : IAsyncDisposable
             Path = "C:\\Docs\\new.txt",
             UtcTimestamp = T1,
         };
-        await _host.OnFileEventAsync(e, CancellationToken.None);
+        await StepAsync("3-OnFileEvent推送", () => _host.OnFileEventAsync(e, CancellationToken.None).AsTask());
 
-        var (pushMethod, pushSeq, pushBody) = await ReadFrameAsync();
+        var (pushMethod, pushSeq, pushBody) = await StepAsync<(ushort, uint, byte[])>("4-读推送帧",
+            () => ReadFrameAsync());
         Assert.Equal((ushort)IpcMethod.SubscribeEvents, pushMethod);
         Assert.Equal(0u, pushSeq);
         var notification = ReadJson<EventNotification>(pushBody);
@@ -213,13 +241,14 @@ public class ServiceHostIpcTests : IAsyncDisposable
         Assert.Equal(999, notification.Event.FileReference);
 
         byte[] unsubPayload = JsonSerializer.SerializeToUtf8Bytes(new UnsubscribeRequest { SubscriptionId = ack.SubscriptionId });
-        await SendAsync((ushort)IpcMethod.UnsubscribeEvents, seq: 6, unsubPayload);
-        var (_, seq2, ackBody) = await ReadFrameAsync();
+        await StepAsync("5-发送Unsubscribe", () => SendAsync((ushort)IpcMethod.UnsubscribeEvents, seq: 6, unsubPayload));
+        var (_, seq2, ackBody) = await StepAsync<(ushort, uint, byte[])>("6-读UnsubscribeAck",
+            () => ReadFrameAsync());
         Assert.Equal(6u, seq2);
         Assert.True(ReadJson<AckResponse>(ackBody).Ok);
 
         // 退订后不再推送：1 秒内不应有任何帧到达
-        await _host.OnFileEventAsync(e with { FileReference = 1000 }, CancellationToken.None);
+        await StepAsync("7-退订后事件", () => _host.OnFileEventAsync(e with { FileReference = 1000 }, CancellationToken.None).AsTask());
         var probe = new byte[1];
         bool pushed = await _client.ReadAsync(probe).AsTask().WaitAsync(TimeSpan.FromSeconds(1))
             .ContinueWith(t => t.Status == TaskStatus.RanToCompletion, TaskScheduler.Default);
