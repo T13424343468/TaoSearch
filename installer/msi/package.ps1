@@ -258,7 +258,7 @@ $bundleWxs = @"
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication Theme="rtfLargeLicense" LicenseFile="$([System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'license.rtf')))" ShowVersion="yes" />
     </BootstrapperApplication>
-    <Variable Name="InstallFolder" Value="D:\Program Files\TaoSearch" />
+    <Variable Name="InstallFolder" Value="D:\Program Files\TaoSearch" bal:Overridable="yes" />
     <util:RegistrySearch Id="Net10DesktopSearch" Variable="Net10Desktop1015" Root="HKLM" Bitness="always64"
                          Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
                          Value="10.0.15" Result="exists" />
