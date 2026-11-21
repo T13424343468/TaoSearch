@@ -3,7 +3,6 @@
     x:Class="TaoSearch.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:vm="using:TaoSearch.App.ViewModels"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     Title="TaoSearch">
 
@@ -41,13 +40,14 @@
         <ScrollViewer Grid.Row="2" Margin="16,0,16,8">
             <ListView x:Name="ResultList" SelectionChanged="OnResultSelected">
                 <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="vm:HitViewModel">
+                    <!-- Window 根不支持 x:Bind（生成代码要求 FrameworkElement），数据项经 DataContext 走经典 Binding -->
+                    <DataTemplate>
                         <Border Style="{StaticResource CardBorder}" Margin="0,0,0,8">
                             <StackPanel Spacing="4">
-                                <TextBlock Text="{x:Bind FileName}" Style="{StaticResource BodyText}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{x:Bind Path}" Style="{StaticResource AuxText}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{x:Bind SizeText}" Style="{StaticResource AuxText}" />
-                                <ItemsControl ItemsSource="{x:Bind Segments}" Visibility="{x:Bind Snippet, Converter={StaticResource NullToCollapsedConverter}}">
+                                <TextBlock Text="{Binding FileName}" Style="{StaticResource BodyText}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Path}" Style="{StaticResource AuxText}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding SizeText}" Style="{StaticResource AuxText}" />
+                                <ItemsControl ItemsSource="{Binding Segments}" Visibility="{Binding Snippet, Converter={StaticResource NullToCollapsedConverter}}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
