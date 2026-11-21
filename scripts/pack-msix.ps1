@@ -69,7 +69,7 @@ $manifest = @'
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
   <Identity Name="Tao.TaoSearch.Service"
             Publisher="CN=Tao"
-            Version="0.1.0.3" />
+            Version="0.1.0.4" />
   <Properties>
     <DisplayName>TaoSearch Service</DisplayName>
     <PublisherDisplayName>Tao</PublisherDisplayName>
@@ -114,7 +114,7 @@ Write-Host "assets\logo.png 存在：$(Test-Path (Join-Path $staging 'assets\log
 
 # ---- 打包 MSIX（未签名） ----
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-$msixPath = Join-Path $OutputDir "TaoSearch.Service-0.1.0.3-unsigned.msix"
+$msixPath = Join-Path $OutputDir "TaoSearch.Service-0.1.0.4-unsigned.msix"
 & $makeappx pack /d $staging /p $msixPath /o
 if ($LASTEXITCODE -ne 0) { throw "makeappx pack 失败（exit $LASTEXITCODE）" }
 
