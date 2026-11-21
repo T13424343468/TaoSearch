@@ -31,6 +31,11 @@ jobs:
           if (-not $makeappx) { Write-Host "::error::makeappx 获取失败"; exit 1 }
           Write-Host "makeappx: $($makeappx.FullName)"
           "MAKEAPPX=$($makeappx.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $signtool = Get-ChildItem $global -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1
+          if (-not $signtool) { Write-Host "::error::signtool 获取失败"; exit 1 }
+          Write-Host "signtool: $($signtool.FullName)"
+          "SIGNTOOL=$($signtool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: 占位图标（清单引用需要）
         shell: pwsh
@@ -42,6 +47,22 @@ jobs:
       - name: 打包未签名 MSIX（框架依赖 win-x64）
         shell: pwsh
         run: ./scripts/pack-msix.ps1 -MakeAppxPath "$env:MAKEAPPX"
+
+      - name: 测试签名（自签证书，随包附 .cer 供真机导入）
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=Tao" -KeyAlgorithm RSA -KeyLength 2048 -KeyExportPolicy Exportable -NotAfter (Get-Date).AddYears(5) -CertStoreLocation "Cert:\CurrentUser\My"
+          $pwd = ConvertTo-SecureString -String "taosearch-ci" -Force -AsPlainText
+          $pfx = "artifacts\msix\TaoSearch.pfx"
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $pwd | Out-Null
+          Export-Certificate -Cert $cert -FilePath "artifacts\msix\TaoSearch.cer" | Out-Null
+          $msix = Get-ChildItem artifacts\msix\*unsigned.msix | Select-Object -First 1
+          $signed = $msix.FullName -replace "-unsigned", ""
+          & "$env:SIGNTOOL" sign /fd SHA256 /a /f $pfx /p taosearch-ci $msix.FullName
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::signtool 签名失败"; exit 1 }
+          Move-Item $msix.FullName $signed -Force
+          Write-Host "已签名：$signed"
+          Get-ChildItem artifacts\msix\*.msix | ForEach-Object { Write-Host "$($_.Name) $($_.Length) 字节" }
 
       - name: 包体基线三口径实测
         shell: pwsh
@@ -62,6 +83,7 @@ jobs:
           name: pack-baseline
           path: |
             artifacts/msix/*.msix
+            artifacts/msix/*.cer
             artifacts/pack-baseline.txt
           if-no-files-found: warn
           retention-days: 14
