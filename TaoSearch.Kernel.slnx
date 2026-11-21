@@ -9,5 +9,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TaoSearch.Kernel.Tests/TaoSearch.Kernel.Tests.csproj" />
+    <Project Path="tests/TaoSearch.Service.Tests/TaoSearch.Service.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,24 +1,16 @@
 using System.IO.Pipes;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using TaoSearch.Kernel.Contracts;
+using TaoSearch.Kernel.FsIndex;
+using TaoSearch.Kernel.FullText;
+using TaoSearch.Kernel.Store;
 
 namespace TaoSearch.Service;
 
 /// <summary>
-/// AOT 源生成序列化上下文（M1 NativeAOT 实测修复）：反射式 JsonSerializer 与裁剪/AOT
-/// 不兼容（IL2026/IL3050，云端 run 44859414687 实测暴露），改源生成零第三方依赖。
-/// </summary>
-[JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(AckFrame))]
-internal sealed partial class ServiceJsonContext : JsonSerializerContext;
-
-/// <summary>管道 ACK 帧（原匿名对象载荷，字段不变）。</summary>
-internal sealed record AckFrame(bool Ok, ushort Method, ushort Version, uint Seq);
-
-/// <summary>
-/// 服务宿主骨架（架构 §3/§7）：命名管道 IPC 服务端 + 单实例互斥体。
-/// 内核接线在 M2/M3 里程碑补齐，本骨架先立进程模型与协议帧。
+/// 服务宿主（架构 §3/§7，M4 引擎接线版）：单实例互斥体 + 命名管道 IPC 服务端 +
+/// 内核装配（文件名索引恢复/首建、全文快照恢复、内容管线、事件泵三路单源）。
+/// 数据目录口径：存储默认 D 盘（TAOSEARCH_DATA 可覆盖，测试注入临时目录）；
+/// D 盘不可用时降级 AppData（并行班设计，归并吸收）。
 /// </summary>
 public static class Program
 {
@@ -29,17 +21,108 @@ public static class Program
     {
         if (!SingleInstance.WaitOne(0)) return; // 单实例：重复启动直接退出
 
-        Console.WriteLine("TaoSearch.Service starting (kernel wiring pending M2/M3)...");
-        var cts = new CancellationTokenSource();
+        string volumeRoot = args.Length > 0 ? args[0]
+            : Environment.GetEnvironmentVariable("TAOSEARCH_VOLUME") ?? @"C:\";
+        string dataDir = ResolveDataDir();
+        Directory.CreateDirectory(dataDir);
+
+        Console.WriteLine($"TaoSearch.Service starting (volume={volumeRoot}, data={dataDir})...");
+
+        using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-        var server = new PipeServer(PipeName);
+        var host = await ServiceHostFactory.CreateAsync(volumeRoot, dataDir, cts.Token);
+
+        var server = new PipeServer(PipeName, host);
         await server.RunAsync(cts.Token);
+    }
+
+    /// <summary>数据目录：存储默认 D 盘（用户拍板），不可用降级 AppData；TAOSEARCH_DATA 最高优先。</summary>
+    internal static string ResolveDataDir()
+    {
+        var env = Environment.GetEnvironmentVariable("TAOSEARCH_DATA");
+        if (!string.IsNullOrWhiteSpace(env)) return env;
+
+        string dPath = @"D:\TaoSearch\Index";
+        try
+        {
+            string? dRoot = Path.GetPathRoot(dPath);
+            if (dRoot != null && Directory.Exists(dRoot)) return dPath;
+        }
+        catch (IOException) { }
+        // D 盘不可用：降级 AppData（用户拍板「存储默认 D 盘」的兜底顺序，不反向覆盖）
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TaoSearch", "Index");
     }
 }
 
-/// <summary>命名管道服务端：帧协议 [4B 长度][2B 版本][2B 方法号][4B 序号][载荷]（架构 §3.4）。</summary>
-public sealed class PipeServer(string pipeName)
+/// <summary>内核装配（可测试）：恢复优先，快照缺失走首建；事件泵单源三路（内核/内容/订阅）。</summary>
+public static class ServiceHostFactory
+{
+    public static async Task<ServiceHost> CreateAsync(string volumeRoot, string dataDir, CancellationToken ct)
+    {
+        string fsSnapshot = Path.Combine(dataDir, "fs.snap");
+        string fsJournal = Path.Combine(dataDir, "fs.journal");
+        string ftSnapshot = Path.Combine(dataDir, "fulltext.snap");
+        string ftJournal = Path.Combine(dataDir, "fulltext.journal");
+
+        // 文件名索引：快照+journal 恢复优先，缺失走首建（MFT 失败自动降级慢路径）
+        FsIndexEngine fs;
+        if (File.Exists(fsSnapshot))
+        {
+            NameIndex restoredIndex;
+            using (var snapStream = new FileStream(fsSnapshot, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                restoredIndex = NameIndex.LoadSnapshot(snapStream);
+            fs = new FsIndexEngine(restoredIndex);
+            var restore = IndexPersistence.Restore(fsSnapshot, fsJournal, volumeRoot, fs);
+            Console.WriteLine($"文件名索引已恢复：{restore.FileCount} 文件（journal {restore.JournalFramesApplied} 帧）");
+        }
+        else
+        {
+            fs = new FsIndexEngine(journalSink: new JournalSink(fsJournal));
+            await fs.BuildAsync(volumeRoot, ct);
+            Console.WriteLine($"文件名索引首建完成：{fs.Snapshot().FileCount} 文件（降级慢路径={fs.Snapshot().UsedFallback}）");
+        }
+
+        // 全文索引：快照+journal 恢复优先，缺失从空索引起（内容由事件管线增量补齐）
+        var fullText = new InvertedIndex();
+        if (File.Exists(ftSnapshot))
+        {
+            using var journalStream = new FileStream(ftJournal, FileMode.OpenOrCreate, FileAccess.Read, FileShare.Read);
+            var (index, frames, _) = FullTextPersistence.Restore(ftSnapshot, journalStream);
+            fullText = index;
+            Console.WriteLine($"全文索引已恢复：{index.DocCount} 文档（journal {frames} 帧）");
+        }
+
+        var content = new ContentIndexer(fullText);
+
+        var host = new ServiceHost(fs, fullText, content, volumeRoot);
+
+        // 事件泵：Windows 挂 USN 监听（真实源）；非 Windows（沙箱/测试）由注入源驱动
+        if (OperatingSystem.IsWindows())
+        {
+            var listener = new UsnJournalListener(volumeRoot);
+            listener.Start();
+            _ = PumpEventsAsync(host, listener, CancellationToken.None);
+        }
+
+        return host;
+    }
+
+    private static async Task PumpEventsAsync(ServiceHost host, IFileEventSource source, CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var e in source.SubscribeAsync(new FileEventFilter(), ct).ConfigureAwait(false))
+            {
+                await host.OnFileEventAsync(e, ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+}
+
+/// <summary>命名管道服务端：帧协议 [4B 载荷长度][2B 版本][2B 方法号][4B 序号][载荷]（架构 §3.4）。</summary>
+public sealed class PipeServer(string pipeName, ServiceHost host)
 {
     public async Task RunAsync(CancellationToken ct)
     {
@@ -52,7 +135,7 @@ public sealed class PipeServer(string pipeName)
         }
     }
 
-    private static async Task HandleClientAsync(NamedPipeServerStream pipe, CancellationToken ct)
+    private async Task HandleClientAsync(NamedPipeServerStream pipe, CancellationToken ct)
     {
         try
         {
@@ -62,18 +145,30 @@ public sealed class PipeServer(string pipeName)
                 int read = await ReadExactlyAsync(pipe, header, ct);
                 if (read < 12) return;
 
+                uint payloadLength = BitConverter.ToUInt32(header, 0);
                 ushort version = BitConverter.ToUInt16(header, 4);
                 ushort method = BitConverter.ToUInt16(header, 6);
                 uint seq = BitConverter.ToUInt32(header, 8);
 
-                // 载荷按方法号分发（M4 接 Contracts 方法族；当前回 ACK）
-                var ack = JsonSerializer.SerializeToUtf8Bytes(
-                    new AckFrame(true, method, version, seq), ServiceJsonContext.Default.AckFrame);
-                await pipe.WriteAsync(ack, ct);
-                await pipe.FlushAsync(ct);
+                if (payloadLength > PipeServerLimits.MaxPayloadBytes) return; // 异常帧直接断开，防内存打爆
+
+                var payload = new byte[payloadLength];
+                if (payloadLength > 0)
+                {
+                    int payloadRead = await ReadExactlyAsync(pipe, payload, ct);
+                    if (payloadRead < payloadLength) return;
+                }
+
+                await host.DispatchAsync(method, version, seq, payload,
+                    async (frame, token) =>
+                    {
+                        await pipe.WriteAsync(frame, token);
+                        await pipe.FlushAsync(token);
+                    }, ct);
             }
         }
         catch (IOException) { /* 客户端断开属正常 */ }
+        catch (OperationCanceledException) { }
         finally { pipe.Dispose(); }
     }
 
@@ -88,4 +183,10 @@ public sealed class PipeServer(string pipeName)
         }
         return total;
     }
+}
+
+/// <summary>帧上限（防异常/恶意载荷）：64MB。</summary>
+public static class PipeServerLimits
+{
+    public const uint MaxPayloadBytes = 64 * 1024 * 1024;
 }
