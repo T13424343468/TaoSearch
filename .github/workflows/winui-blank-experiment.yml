@@ -1,0 +1,162 @@
+name: winui-blank-experiment
+
+on:
+  workflow_dispatch:
+
+jobs:
+  blank-matrix:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 生成空白 WinUI3 应用（最小复现，无任何业务代码）
+        shell: pwsh
+        run: |
+          $dir = "blank-app"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $csproj = @'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>WinExe</OutputType>
+              <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+              <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+              <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+              <UseWinUI>true</UseWinUI>
+              <EnableMsixTooling>true</EnableMsixTooling>
+              <WindowsPackageType>None</WindowsPackageType>
+              <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+              <Nullable>enable</Nullable>
+              <ImplicitUsings>enable</ImplicitUsings>
+              <Platforms>x64</Platforms>
+              <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+              <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+            </ItemGroup>
+          </Project>
+          '@
+          [System.IO.File]::WriteAllText("$dir/Blank.csproj", $csproj, (New-Object System.Text.UTF8Encoding($false)))
+          $appXaml = @'
+          <Application
+              x:Class="Blank.App"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+            <Application.Resources>
+              <ResourceDictionary>
+                <ResourceDictionary.MergedDictionaries>
+                  <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                </ResourceDictionary.MergedDictionaries>
+              </ResourceDictionary>
+            </Application.Resources>
+          </Application>
+          '@
+          [System.IO.File]::WriteAllText("$dir/App.xaml", $appXaml, (New-Object System.Text.UTF8Encoding($false)))
+          $appCs = @'
+          using Microsoft.UI.Xaml;
+
+          namespace Blank;
+
+          public partial class App : Application
+          {
+              public App() { InitializeComponent(); }
+              protected override void OnLaunched(LaunchActivatedEventArgs args)
+              {
+                  var w = new Window();
+                  w.Title = "BlankTest";
+                  w.Activate();
+              }
+          }
+          '@
+          [System.IO.File]::WriteAllText("$dir/App.xaml.cs", $appCs, (New-Object System.Text.UTF8Encoding($false)))
+          Write-Host "空白应用已生成"
+
+      - name: 变体A 发布（WASDK自包含 + .NET框架依赖，与 TaoSearch 当前口径一致）
+        shell: pwsh
+        run: |
+          dotnet publish blank-app/Blank.csproj -c Release -r win-x64 --self-contained false -o blank-a --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体A发布失败"; exit 1 }
+          Write-Host "变体A文件数: $((Get-ChildItem blank-a -Recurse -File | Measure-Object).Count)"
+
+      - name: 变体A 启动验证
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "blank-a/Blank.exe" -WorkingDirectory "blank-a" -PassThru
+          Start-Sleep -Seconds 10
+          $alive = Get-Process -Name "Blank" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体A: 进程存活, 窗口句柄=$(if($w){$w.MainWindowHandle}else{0}), 标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "Blank" -Force -ErrorAction SilentlyContinue
+          } else {
+            try { Write-Host ("变体A: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体A: 进程已退出" }
+          }
+          Write-Host "变体A Application 错误事件:"
+          Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2; StartTime=(Get-Date).AddMinutes(-3)} -ErrorAction SilentlyContinue | ForEach-Object {
+            $msg = if ($_.Message) { ($_.Message -replace "\s+", " ") } else { "(无正文)" }
+            if ($msg.Length -gt 400) { $msg = $msg.Substring(0, 400) }
+            Write-Host ("  [" + $_.TimeCreated.ToString("HH:mm:ss") + "][" + $_.ProviderName + "] " + $msg)
+          }
+
+      - name: 变体B 发布（WASDK自包含 + .NET自包含）
+        shell: pwsh
+        run: |
+          dotnet publish blank-app/Blank.csproj -c Release -r win-x64 --self-contained true -o blank-b --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体B发布失败"; exit 1 }
+          Write-Host "变体B文件数: $((Get-ChildItem blank-b -Recurse -File | Measure-Object).Count)"
+
+      - name: 变体B 启动验证
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "blank-b/Blank.exe" -WorkingDirectory "blank-b" -PassThru
+          Start-Sleep -Seconds 10
+          $alive = Get-Process -Name "Blank" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体B: 进程存活, 窗口句柄=$(if($w){$w.MainWindowHandle}else{0}), 标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "Blank" -Force -ErrorAction SilentlyContinue
+          } else {
+            try { Write-Host ("变体B: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体B: 进程已退出" }
+          }
+          Write-Host "变体B Application 错误事件:"
+          Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2; StartTime=(Get-Date).AddMinutes(-3)} -ErrorAction SilentlyContinue | ForEach-Object {
+            $msg = if ($_.Message) { ($_.Message -replace "\s+", " ") } else { "(无正文)" }
+            if ($msg.Length -gt 400) { $msg = $msg.Substring(0, 400) }
+            Write-Host ("  [" + $_.TimeCreated.ToString("HH:mm:ss") + "][" + $_.ProviderName + "] " + $msg)
+          }
+
+      - name: 变体C 发布（WASDK框架依赖，依赖系统运行时）
+        shell: pwsh
+        run: |
+          dotnet publish blank-app/Blank.csproj -c Release -r win-x64 --self-contained false -p:WindowsAppSDKSelfContained=false -o blank-c --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体C发布失败"; exit 1 }
+          Write-Host "变体C文件数: $((Get-ChildItem blank-c -Recurse -File | Measure-Object).Count)"
+
+      - name: 变体C 启动验证
+        shell: pwsh
+        run: |
+          Write-Host "系统已装 WinAppSDK 运行时:"
+          Get-AppxPackage *WindowsAppRuntime* -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("  " + $_.Name + " " + $_.Version) }
+          $p = Start-Process -FilePath "blank-c/Blank.exe" -WorkingDirectory "blank-c" -PassThru
+          Start-Sleep -Seconds 10
+          $alive = Get-Process -Name "Blank" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体C: 进程存活, 窗口句柄=$(if($w){$w.MainWindowHandle}else{0}), 标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "Blank" -Force -ErrorAction SilentlyContinue
+          } else {
+            try { Write-Host ("变体C: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体C: 进程已退出" }
+          }
+          Write-Host "变体C Application 错误事件:"
+          Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2; StartTime=(Get-Date).AddMinutes(-3)} -ErrorAction SilentlyContinue | ForEach-Object {
+            $msg = if ($_.Message) { ($_.Message -replace "\s+", " ") } else { "(无正文)" }
+            if ($msg.Length -gt 400) { $msg = $msg.Substring(0, 400) }
+            Write-Host ("  [" + $_.TimeCreated.ToString("HH:mm:ss") + "][" + $_.ProviderName + "] " + $msg)
+          }
