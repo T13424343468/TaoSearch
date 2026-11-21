@@ -277,16 +277,7 @@ $bundleWxs = @"
         <ExitCode Value="1638" Behavior="success" />
         <ExitCode Value="3010" Behavior="success" />
       </ExePackage>
-      <ExePackage Id="WinAppSdkRuntime" DisplayName="Windows 应用运行时（官方组件）"
-                  Name="windowsappruntimeinstall-x64.exe"
-                  DownloadUrl="https://aka.ms/windowsappsdk/1.8/latest/windowsappruntimeinstall-x64.exe"
-                  InstallArguments="--quiet"
-                  Permanent="yes"
-                  PerMachine="yes"
-                  Compressed="no">
-        <ExitCode Value="-2147009274" Behavior="success" />
-        <ExitCode Value="3010" Behavior="success" />
-      </ExePackage>
+      <!-- WinAppSDK 运行时已随应用自包含部署(WindowsAppSDKSelfContained), 不再依赖系统运行时, 从安装链移除 -->
       <MsiPackage Id="TaoSearchMsi" SourceFile="$OutDir\TaoSearch-$ProductVersion-x64.msi" Vital="yes">
         <MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />
       </MsiPackage>

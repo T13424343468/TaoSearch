@@ -57,7 +57,7 @@ jobs:
           $rt = Join-Path $env:RUNNER_TEMP "runtimes"
           New-Item -ItemType Directory -Path $rt -Force | Out-Null
           Invoke-WebRequest -Uri "https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x64.exe" -OutFile (Join-Path $rt "windowsdesktop-runtime-win-x64.exe")
-          Invoke-WebRequest -Uri "https://aka.ms/windowsappsdk/1.8/latest/windowsappruntimeinstall-x64.exe" -OutFile (Join-Path $rt "windowsappruntimeinstall-x64.exe")
+          # WinAppSDK 运行时已随应用自包含部署(WindowsAppSDKSelfContained), 不再预取
           Get-ChildItem $rt | ForEach-Object { Write-Host ("  {0}  {1:N1} MB" -f $_.Name, ($_.Length/1MB)) }
           "RUNTIMEDIR=$rt" | Out-File -FilePath $env:GITHUB_ENV -Append
 
