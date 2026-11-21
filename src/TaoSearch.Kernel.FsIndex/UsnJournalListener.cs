@@ -70,6 +70,7 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
                     {
                         Kind = kind.Value,
                         FileReference = (long)record.FileReferenceNumber,
+                        ParentReference = (long)record.ParentFileReferenceNumber,
                         Path = fileName, // 完整路径由 NameIndex 父链重建
                         UtcTimestamp = DateTimeOffset.FromFileTime(record.TimeStamp),
                     }, ct);

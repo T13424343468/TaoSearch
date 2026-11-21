@@ -12,6 +12,16 @@ internal static class MftInterop
     private const string Kernel32 = "kernel32.dll";
 
     [DllImport(Kernel32, SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr CreateFileWRaw(
+        string lpFileName,
+        uint dwDesiredAccess,
+        uint dwShareMode,
+        nint lpSecurityAttributes,
+        uint dwCreationDisposition,
+        uint dwFlagsAndAttributes,
+        nint hTemplateFile);
+
+    [DllImport(Kernel32, SetLastError = true, CharSet = CharSet.Unicode)]
     internal static extern SafeFileHandle CreateFileW(
         string lpFileName,
         uint dwDesiredAccess,
@@ -20,6 +30,17 @@ internal static class MftInterop
         uint dwCreationDisposition,
         uint dwFlagsAndAttributes,
         nint hTemplateFile);
+
+    /// <summary>
+    /// 打开路径并精确捕获 Win32 错误码：SafeFileHandle 封送器在返回前可能覆盖 LastError，
+    /// 故走裸句柄 P/Invoke，先取错误码再包 SafeFileHandle（MFT 枚举失败降级判定依赖准确错误码）。
+    /// </summary>
+    internal static SafeFileHandle OpenPath(string path, uint desiredAccess, uint shareMode, uint flags, out int win32Error)
+    {
+        IntPtr raw = CreateFileWRaw(path, desiredAccess, shareMode, 0, OpenExisting, flags, 0);
+        win32Error = Marshal.GetLastWin32Error();
+        return new SafeFileHandle(raw, true);
+    }
 
     [DllImport(Kernel32, SetLastError = true)]
     internal static extern bool DeviceIoControl(

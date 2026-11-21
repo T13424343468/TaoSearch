@@ -72,6 +72,9 @@ public sealed record FileEvent
     public required long FileReference { get; init; }
     public required string Path { get; init; }
     public required DateTimeOffset UtcTimestamp { get; init; }
+
+    /// <summary>NTFS 父引用号（USN 源必填，供索引父链路径重建；无此概念的源可空）。</summary>
+    public long? ParentReference { get; init; }
 }
 
 public enum FileChangeKind { Created, Renamed, Deleted, ContentModified }
