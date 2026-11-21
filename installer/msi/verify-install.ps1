@@ -97,18 +97,29 @@ Log "STEP3 启动验证通过, 进程已结束"
 
 # ---- 第 4 步: 卸载干净 ----
 Log "STEP4 卸载"
-$bundleArp = Get-ChildItem $runKey -ErrorAction SilentlyContinue | Where-Object {
+# 卸载优先走 Burn 引导包登记项 (其 UninstallString 指向 Package Cache 里的引导 exe);
+# 若只匹配到 MSI 登记项 (MsiExec.exe /I{guid}), 则改用 msiexec /x 卸载
+$arpEntries = Get-ChildItem $runKey -ErrorAction SilentlyContinue | ForEach-Object {
     $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
-    $props.DisplayName -eq "TaoSearch" -and $props.UninstallString -like "*exe*"
-} | Select-Object -First 1
-if ($bundleArp) {
-    # 注册表键对象不直接暴露值属性, 须用 Get-ItemProperty 取 UninstallString
-    $unstr = (Get-ItemProperty $bundleArp.PSPath -ErrorAction SilentlyContinue).UninstallString
+    if ($props.DisplayName -eq "TaoSearch" -and $props.UninstallString -like "*exe*") {
+        [pscustomobject]@{ Key = $_; Unstr = [string]$props.UninstallString }
+    }
+}
+$bundleEntry = $arpEntries | Where-Object { $_.Unstr -notmatch '(?i)msiexec\.exe' } | Select-Object -First 1
+if ($bundleEntry) {
+    $unstr = $bundleEntry.Unstr
     Log ("STEP4 卸载命令: " + $unstr)
     Assert (-not [string]::IsNullOrWhiteSpace($unstr)) "卸载登记项含 UninstallString"
     if ($unstr -match '^"([^"]+)"') { $unExe = $Matches[1] } else { $unExe = ($unstr -split '\s+')[0] }
     Assert ($unExe -and (Test-Path $unExe)) "卸载命令解析出有效路径"
     $up = Start-Process -FilePath $unExe -ArgumentList "/uninstall", "/quiet", "/norestart" -Wait -PassThru
+    Log ("STEP4 卸载退出码: " + $up.ExitCode)
+    Assert ($up.ExitCode -eq 0) "卸载退出码为 0"
+} elseif ($arpEntries) {
+    $unstr = $arpEntries[0].Unstr
+    Log ("STEP4 卸载命令(MSI): " + $unstr)
+    Assert ($unstr -match '\{([0-9A-Fa-f\-]+)\}') "MSI 卸载登记项含产品码"
+    $up = Start-Process msiexec.exe -ArgumentList "/x {$($Matches[1])}", "/quiet", "/norestart" -Wait -PassThru
     Log ("STEP4 卸载退出码: " + $up.ExitCode)
     Assert ($up.ExitCode -eq 0) "卸载退出码为 0"
 } else {
