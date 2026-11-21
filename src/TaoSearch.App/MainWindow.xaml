@@ -49,7 +49,7 @@
                                 <TextBlock Text="{x:Bind FileName}" Style="{StaticResource BodyText}" TextTrimming="CharacterEllipsis" />
                                 <TextBlock Text="{x:Bind Path}" Style="{StaticResource AuxText}" TextTrimming="CharacterEllipsis" />
                                 <TextBlock Text="{x:Bind SizeText}" Style="{StaticResource AuxText}" />
-                                <ItemsControl ItemsSource="{x:Bind Segments}" Visibility="{x:Bind Snippet, Converter={StaticResource NullToCollapsedConverter}}">
+                                <ItemsControl ItemsSource="{x:Bind Segments}" Visibility="{Binding Snippet, Converter={StaticResource NullToCollapsedConverter}}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
