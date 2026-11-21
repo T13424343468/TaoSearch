@@ -144,9 +144,37 @@ jobs:
           Copy-Item blank-app/App.xaml "$dir/App.xaml"
           New-Item -ItemType Directory -Path "$dir/Assets" -Force | Out-Null
           Copy-Item src/TaoSearch.App/Assets/taosearch.ico "$dir/Assets/taosearch.ico"
-          $cs = [System.IO.File]::ReadAllText("blank-app/template-appcs.txt") -f "try { w.AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, `"Assets`", `"taosearch.ico`")); } catch { Write-Host `"SetIcon异常: `" + `$_.Exception.Message }"
+          $cs = @'
+          using Microsoft.UI.Xaml;
+          using Microsoft.UI.Xaml.Controls;
+
+          namespace Blank;
+
+          public partial class App : Application
+          {
+              public App() { InitializeComponent(); }
+              protected override void OnLaunched(LaunchActivatedEventArgs args)
+              {
+                  var w = new Window();
+                  w.Title = "BlankTest";
+                  w.Content = new TextBlock { Text = "hello" };
+                  try
+                  {
+                      var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "taosearch.ico");
+                      Write-Host("icon exists: " + System.IO.File.Exists(iconPath));
+                      w.AppWindow.SetIcon(iconPath);
+                      Write-Host("SetIcon 完成");
+                  }
+                  catch (System.Exception ex)
+                  {
+                      Write-Host("SetIcon异常: " + ex.Message);
+                  }
+                  w.Activate();
+              }
+          }
+          '@
           [System.IO.File]::WriteAllText("$dir/App.xaml.cs", $cs, (New-Object System.Text.UTF8Encoding($false)))
-          $proj = ([System.IO.File]::ReadAllText("blank-app/template.csproj.txt") -f "<ApplicationIcon>Assets\taosearch.ico</ApplicationIcon>", "`<ItemGroup>`r`n            <Content Include=`"Assets\taosearch.ico`">`r`n              <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>`r`n            </Content>`r`n          </ItemGroup>")
+          $proj = ([System.IO.File]::ReadAllText("blank-app/template.csproj.txt") -f "<ApplicationIcon>Assets\taosearch.ico</ApplicationIcon>", "<ItemGroup>`r`n            <Content Include=`"Assets\taosearch.ico`">`r`n              <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>`r`n            </Content>`r`n          </ItemGroup>")
           [System.IO.File]::WriteAllText("$dir/Blank.csproj", $proj, (New-Object System.Text.UTF8Encoding($false)))
           dotnet publish "$dir/Blank.csproj" -c Release -r win-x64 --self-contained false -o blank-f-out --nologo
           if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体F发布失败"; exit 1 }
