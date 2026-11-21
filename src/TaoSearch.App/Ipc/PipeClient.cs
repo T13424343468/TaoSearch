@@ -29,7 +29,6 @@ public sealed class PipeClient : IDisposable
 {
     private const string PipeName = "taosearch.svc.1";
     private NamedPipeClientStream? _pipe;
-    private uint _seq;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <summary>确保连接（懒连接，服务未起时抛 IOException 由调用方提示启动服务）。</summary>
@@ -63,7 +62,7 @@ public sealed class PipeClient : IDisposable
             var respPayload = new byte[respLen];
             await ReadExactlyAsync(pipe, respPayload, ct);
 
-            return JsonSerializer.Deserialize(respPayload, AppJsonContext.Default.Options.GetTypeInfo<TResp>())
+            return (TResp)JsonSerializer.Deserialize(respPayload, AppJsonContext.Default.Options.GetTypeInfo(typeof(TResp)))
                 ?? throw new InvalidDataException($"empty response for {method}");
         }
         finally { _gate.Release(); }
