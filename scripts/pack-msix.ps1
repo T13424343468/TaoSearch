@@ -58,7 +58,8 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet publish 失败（exit $LASTEXITCODE）"
 $manifest = @'
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10">
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
   <Identity Name="Tao.TaoSearch.Service"
             Publisher="CN=Tao"
             Version="0.1.0.1" />
@@ -70,6 +71,12 @@ $manifest = @'
   <Resources>
     <Resource Language="zh-cn" />
   </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
   <Applications>
     <Application Id="TaoSearchService"
                  Executable="TaoSearch.Service.exe"
