@@ -102,10 +102,12 @@ $bundleArp = Get-ChildItem $runKey -ErrorAction SilentlyContinue | Where-Object 
     $props.DisplayName -eq "TaoSearch" -and $props.UninstallString -like "*exe*"
 } | Select-Object -First 1
 if ($bundleArp) {
-    $unstr = $bundleArp.UninstallString
+    # 注册表键对象不直接暴露值属性, 须用 Get-ItemProperty 取 UninstallString
+    $unstr = (Get-ItemProperty $bundleArp.PSPath -ErrorAction SilentlyContinue).UninstallString
     Log ("STEP4 卸载命令: " + $unstr)
-    $un = $unstr -replace '^"([^"]+)"\s*', '$1 '
-    $unExe = $unstr.Split('"')[1]
+    Assert (-not [string]::IsNullOrWhiteSpace($unstr)) "卸载登记项含 UninstallString"
+    if ($unstr -match '^"([^"]+)"') { $unExe = $Matches[1] } else { $unExe = ($unstr -split '\s+')[0] }
+    Assert ($unExe -and (Test-Path $unExe)) "卸载命令解析出有效路径"
     $up = Start-Process -FilePath $unExe -ArgumentList "/uninstall", "/quiet", "/norestart" -Wait -PassThru
     Log ("STEP4 卸载退出码: " + $up.ExitCode)
     Assert ($up.ExitCode -eq 0) "卸载退出码为 0"
