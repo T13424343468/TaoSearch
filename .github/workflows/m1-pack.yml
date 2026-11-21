@@ -22,21 +22,31 @@ jobs:
         shell: pwsh
         run: |
           dotnet tool install --global wix --version 6.0.2
-          # wix extension add 按 id/version 形式会静默失败(退出码恒 0, 缓存残缺), 改为下载带版本文件名的 nupkg 安装
-          $dl = Join-Path $env:TEMP "wixext"
-          New-Item -ItemType Directory -Path $dl -Force | Out-Null
-          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/wixtoolset.bal.wixext/6.0.2/wixtoolset.bal.wixext.6.0.2.nupkg" -OutFile (Join-Path $dl "WixToolset.Bal.wixext.6.0.2.nupkg")
-          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/wixtoolset.util.wixext/6.0.2/wixtoolset.util.wixext.6.0.2.nupkg" -OutFile (Join-Path $dl "WixToolset.Util.wixext.6.0.2.nupkg")
-          wix extension add -g (Join-Path $dl "WixToolset.Bal.wixext.6.0.2.nupkg")
-          wix extension add -g (Join-Path $dl "WixToolset.Util.wixext.6.0.2.nupkg")
-          # 扩展安装自检: wix extension add 失败不报错, 必须显式核对缓存 dll 落位
-          $balDll = "$env:USERPROFILE\.wix\extensions\WixToolset.Bal.wixext\6.0.2\wixext6\WixToolset.Bal.wixext.dll"
-          $utilDll = "$env:USERPROFILE\.wix\extensions\WixToolset.Util.wixext\6.0.2\wixext6\WixToolset.Util.wixext.dll"
-          if (-not (Test-Path $balDll)) { Write-Host "::error::Bal 扩展缓存缺失"; exit 1 }
-          if (-not (Test-Path $utilDll)) { Write-Host "::error::Util 扩展缓存缺失"; exit 1 }
           $wix = "$env:USERPROFILE\.dotnet\tools\wix.exe"
           if (-not (Test-Path $wix)) { Write-Host "::error::wix 未找到"; exit 1 }
           "WIXEXE=$wix" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: 解包 WiX 扩展（Bal/Util，直接全路径引用，不依赖 wix extension add 缓存）
+        shell: pwsh
+        run: |
+          $dl = Join-Path $env:RUNNER_TEMP "wixext"
+          New-Item -ItemType Directory -Path $dl -Force | Out-Null
+          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/wixtoolset.bal.wixext/6.0.2/wixtoolset.bal.wixext.6.0.2.nupkg" -OutFile (Join-Path $dl "bal.zip")
+          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/wixtoolset.util.wixext/6.0.2/wixtoolset.util.wixext.6.0.2.nupkg" -OutFile (Join-Path $dl "util.zip")
+          Expand-Archive (Join-Path $dl "bal.zip") -DestinationPath (Join-Path $dl "bal") -Force
+          Expand-Archive (Join-Path $dl "util.zip") -DestinationPath (Join-Path $dl "util") -Force
+          $balDll = Join-Path $dl "bal\wixext6\WixToolset.BootstrapperApplications.wixext.dll"
+          $utilDll = Join-Path $dl "util\wixext6\WixToolset.Util.wixext.dll"
+          if (-not (Test-Path $balDll)) { Write-Host "::error::Bal 扩展 dll 缺失"; exit 1 }
+          if (-not (Test-Path $utilDll)) { Write-Host "::error::Util 扩展 dll 缺失"; exit 1 }
+          "BALEXT=$balDll" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "UTILEXT=$utilDll" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: 构建 MSI + 引导安装器（微信风格 MSI + 运行时联网装）
+        shell: pwsh
+        run: |
+          ./installer/msi/package.ps1 -PublishDir installer/publish -OutDir artifacts/installer -WixExe "$env:WIXEXE" -BalExtPath "$env:BALEXT" -UtilExtPath "$env:UTILEXT"
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::安装器构建失败"; exit 1 }
 
       - name: 发布框架依赖产物（不内置运行时，按 2026-11-21 新标准装时联网补）
         shell: pwsh

@@ -5,7 +5,9 @@
 param(
     [Parameter(Mandatory = $true)][string]$PublishDir,
     [string]$OutDir = "out",
-    [string]$WixExe = "wix"
+    [string]$WixExe = "wix",
+    [string]$BalExtPath = "",
+    [string]$UtilExtPath = ""
 )
 $ScriptVersion = "msi-v1-1121"
 Write-Host "打包脚本版本: $ScriptVersion (若日志无此行, 说明运行的是旧脚本, 请全新目录重试)"
@@ -311,7 +313,10 @@ if (Test-Path $exe) { Remove-Item $exe -Force }
 Write-Host "构建引导安装器..."
 # WinAppSDK 运行时为 MSIX 形态, 无注册表探测键 (微软官方以 PackageManager 检测), 官方安装器自检"已装即跳过";
 #   无 DetectCondition 的 WIX1161 建议性警告按已知限制抑制 (-sw1161), 不影响安装正确性
-& $WixExe build $bundlePath -pdbtype none -ext WixToolset.Bal.wixext -ext WixToolset.Util.wixext -sw1161 -o $exe 2>&1 | Tee-Object -FilePath (Join-Path $outFull "bundle-build.log")
+# 扩展引用: 传了全路径就用全路径 (CI 直接解包引用, 不依赖 wix extension add 缓存), 否则按扩展名走缓存
+$balArg = if ($BalExtPath) { $BalExtPath } else { "WixToolset.Bal.wixext" }
+$utilArg = if ($UtilExtPath) { $UtilExtPath } else { "WixToolset.Util.wixext" }
+& $WixExe build $bundlePath -pdbtype none -ext $balArg -ext $utilArg -sw1161 -o $exe 2>&1 | Tee-Object -FilePath (Join-Path $outFull "bundle-build.log")
 if ($LASTEXITCODE -ne 0) {
     Write-Host "打包配置已保存: $bundlePath (排错用, 请把此文件与上方完整报错一并发出)"
     throw "WiX 构建引导安装器失败"
