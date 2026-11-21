@@ -22,8 +22,18 @@ jobs:
         shell: pwsh
         run: |
           dotnet tool install --global wix --version 6.0.2
-          wix extension add -g WixToolset.Bal.wixext/6.0.2
-          wix extension add -g WixToolset.Util.wixext/6.0.2
+          # wix extension add 按 id/version 形式会静默失败(退出码恒 0, 缓存残缺), 改为下载带版本文件名的 nupkg 安装
+          $dl = Join-Path $env:TEMP "wixext"
+          New-Item -ItemType Directory -Path $dl -Force | Out-Null
+          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/wixtoolset.bal.wixext/6.0.2/wixtoolset.bal.wixext.6.0.2.nupkg" -OutFile (Join-Path $dl "WixToolset.Bal.wixext.6.0.2.nupkg")
+          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/wixtoolset.util.wixext/6.0.2/wixtoolset.util.wixext.6.0.2.nupkg" -OutFile (Join-Path $dl "WixToolset.Util.wixext.6.0.2.nupkg")
+          wix extension add -g (Join-Path $dl "WixToolset.Bal.wixext.6.0.2.nupkg")
+          wix extension add -g (Join-Path $dl "WixToolset.Util.wixext.6.0.2.nupkg")
+          # 扩展安装自检: wix extension add 失败不报错, 必须显式核对缓存 dll 落位
+          $balDll = "$env:USERPROFILE\.wix\extensions\WixToolset.Bal.wixext\6.0.2\wixext6\WixToolset.Bal.wixext.dll"
+          $utilDll = "$env:USERPROFILE\.wix\extensions\WixToolset.Util.wixext\6.0.2\wixext6\WixToolset.Util.wixext.dll"
+          if (-not (Test-Path $balDll)) { Write-Host "::error::Bal 扩展缓存缺失"; exit 1 }
+          if (-not (Test-Path $utilDll)) { Write-Host "::error::Util 扩展缓存缺失"; exit 1 }
           $wix = "$env:USERPROFILE\.dotnet\tools\wix.exe"
           if (-not (Test-Path $wix)) { Write-Host "::error::wix 未找到"; exit 1 }
           "WIXEXE=$wix" | Out-File -FilePath $env:GITHUB_ENV -Append
