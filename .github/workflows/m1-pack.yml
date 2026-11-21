@@ -1,0 +1,63 @@
+name: m1-pack
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ 'pack/**' ]
+
+jobs:
+  pack-baseline:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 探测 makeappx（Windows SDK 自带，零第三方令）
+        shell: pwsh
+        run: |
+          $c = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName "x64\makeappx.exe" } |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($c) { Write-Host "makeappx: $c" }
+          else { Write-Host "::error::未找到 makeappx（Windows SDK 缺失）"; exit 1 }
+
+      - name: 占位图标（清单引用需要）
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "artifacts\msix\assets" | Out-Null
+          $png = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+          [System.IO.File]::WriteAllBytes("artifacts\msix\assets\logo.png", $png)
+
+      - name: 打包未签名 MSIX（框架依赖 win-x64）
+        shell: pwsh
+        run: ./scripts/pack-msix.ps1
+
+      - name: 包体基线三口径实测
+        shell: pwsh
+        run: |
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained true -o artifacts\selfcontained --nologo
+          $fd = (Get-ChildItem artifacts\msix\publish -Recurse | Measure-Object Length -Sum).Sum
+          $sc = (Get-ChildItem artifacts\selfcontained -Recurse | Measure-Object Length -Sum).Sum
+          $msix = (Get-Item artifacts\msix\TaoSearch.Service-0.1.0.1-unsigned.msix).Length
+          "框架依赖 publish: {0:N1} MB" -f ($fd/1MB) | Tee-Object -FilePath artifacts\pack-baseline.txt
+          "自包含 publish:   {0:N1} MB" -f ($sc/1MB) | Tee-Object -FilePath artifacts\pack-baseline.txt -Append
+          "未签名 MSIX:      {0:N1} MB" -f ($msix/1MB) | Tee-Object -FilePath artifacts\pack-baseline.txt -Append
+          Get-Content artifacts\pack-baseline.txt
+
+      - name: 上传包体基线证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pack-baseline
+          path: |
+            artifacts/msix/*.msix
+            artifacts/pack-baseline.txt
+          if-no-files-found: warn
+          retention-days: 14
