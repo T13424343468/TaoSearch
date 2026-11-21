@@ -24,6 +24,9 @@ jobs:
       - name: 编译（零错零警口径，TreatWarningsAsErrors 已在 Directory.Build.props）
         run: dotnet build TaoSearch.Kernel.slnx -c Release --no-restore --nologo
 
+      - name: 编译壳层（WinUI3，Windows 专属目标框架）
+        run: dotnet build src/TaoSearch.App/TaoSearch.App.csproj -c Release --no-restore --nologo
+
       - name: 单元测试（Windows 真环境跑 MFT/USN 互操作编译产物）
         run: >
           dotnet test TaoSearch.Kernel.slnx -c Release --no-build --nologo
