@@ -114,11 +114,9 @@ end;
 var
   DownloadPage: TDownloadWizardPage;
 
-function OnDownloadProgress(const Url, FileDir, FileName: String; const Progress, ProgressMax: Int64; var Abort: Boolean): Boolean;
+procedure InitializeWizard;
 begin
-  WizardForm.ProgressGauge.Position := Progress;
-  WizardForm.ProgressGauge.Max := ProgressMax;
-  Result := True;
+  DownloadPage := CreateDownloadPage('正在准备', '正在下载官方运行时（只需一次）', nil);
 end;
 
 // 下载并静默安装一个官方运行时；失败时给通俗指引，返回是否继续安装
@@ -127,35 +125,36 @@ var
   runtimeFile: String;
   resultCode: Integer;
   retry: Integer;
+  done: Boolean;
 begin
   Result := True;
-  DownloadPage := CreateDownloadPage('正在安装 ' + Desc, '正在下载官方 ' + Desc + '（' + SizeHint + '，只需一次）', @OnDownloadProgress);
   DownloadPage.Clear;
   DownloadPage.Add(Url, SaveName, '');
   retry := 0;
-  while retry < 2 do
+  done := False;
+  while (not done) and (retry < 2) do
   begin
+    DownloadPage.Show;
     try
-      DownloadPage.Show;
       try
-        DownloadPage.Download;
-        Break;
-      finally
-        DownloadPage.Hide;
-      end;
-    except
-      retry := retry + 1;
-      if retry >= 2 then
-      begin
-        if MsgBox('下载官方 ' + Desc + ' 失败：当前可能没有联网。' #13#10 #13#10 '这台电脑还缺 ' + Desc + '，缺它 TaoSearch 就启动不了。' #13#10 '请连上网后点【重试】；或点【取消】退出，联网后重新运行本安装程序。', mbError, MB_RETRYCANCEL) = IDRETRY then
-          retry := 0
-        else
+        DownloadPage.Download; // 下载到 {tmp}
+        done := True;
+      except
+        retry := retry + 1;
+        if retry >= 2 then
         begin
-          Result := False;
-          Exit;
+          if MsgBox('下载官方 ' + Desc + ' 失败：当前可能没有联网。' #13#10 #13#10 '这台电脑还缺 ' + Desc + '，缺它 TaoSearch 就启动不了。' #13#10 '请连上网后点【重试】；或点【取消】退出，联网后重新运行本安装程序。', mbError, MB_RETRYCANCEL) = IDRETRY then
+            retry := 0;
         end;
       end;
+    finally
+      DownloadPage.Hide;
     end;
+  end;
+  if not done then
+  begin
+    Result := False;
+    Exit;
   end;
 
   runtimeFile := ExpandConstant('{tmp}\') + SaveName;
