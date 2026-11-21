@@ -28,7 +28,7 @@
   </ItemGroup>
   <ItemGroup>
     <!-- 1.8 起 XamlCompiler 官方支持 .NET 10，且编译失败以 MSBuild 错误形式抛出（1.6 为静默 MSB3073） -->
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260710003" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
   </ItemGroup>
   <ItemGroup>
