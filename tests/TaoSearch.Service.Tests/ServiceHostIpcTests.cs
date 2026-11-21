@@ -208,6 +208,42 @@ public class ServiceHostIpcTests : IDisposable
         Assert.Empty(status.FailedFiles);
     }
 
+    /// <summary>挂起定位诊断：同一句柄建读写两个单向包装，验证分包装并发读写是否规避同实例挂死。</summary>
+    [Fact]
+    public async Task PipeDiagnostic_TwoStreamWrappers()
+    {
+        string pipeName = "taosearch.diag2." + Guid.NewGuid().ToString("N");
+        var server = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        try
+        {
+            client.Connect(10_000);
+            server.WaitForConnection();
+
+            // 同一 SafePipeHandle 建两个单向包装：读走 reader、写走 writer（生产拟采用的修法）
+            using var reader = new NamedPipeServerStream(PipeDirection.In, true, true, server.SafePipeHandle);
+            using var writer = new NamedPipeServerStream(PipeDirection.Out, true, true, server.SafePipeHandle);
+
+            ValueTask<int> pendingRead = reader.ReadAsync(new byte[12]);
+            byte[] frame = [1, 2, 3, 4];
+            await StepAsync("diag2-并发写", () => writer.WriteAsync(frame).AsTask());
+
+            var echo = new byte[frame.Length];
+            await StepAsync("diag2-客户端读", () => client.ReadAsync(echo).AsTask());
+            Assert.Equal(frame, echo);
+
+            byte[] header = new byte[12];
+            await StepAsync("diag2-客户端写", () => client.WriteAsync(header).AsTask());
+            int read = await StepAsync("diag2-pending读完成", () => pendingRead.AsTask());
+            Assert.Equal(12, read);
+        }
+        finally
+        {
+            client.Dispose();
+            server.Dispose();
+        }
+    }
+
     /// <summary>挂起定位诊断：pump 持 pending 读 + 服务端并发写（与事件推送同模式，单读单写）。</summary>
     [Fact]
     public async Task PipeDiagnostic_ConcurrentReadWrite()
