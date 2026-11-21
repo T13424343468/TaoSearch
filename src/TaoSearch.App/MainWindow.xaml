@@ -71,7 +71,7 @@
 
         <!-- 底部导航（原型六页口径：主窗/快速/引导/设置/集成） -->
         <NavigationView Grid.Row="3" x:Name="Nav"
-                        PaneDisplayMode="Bottom"
+                        PaneDisplayMode="Top"
                         SelectionChanged="OnNavChanged">
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="搜索" Tag="main" IsSelected="True" />
