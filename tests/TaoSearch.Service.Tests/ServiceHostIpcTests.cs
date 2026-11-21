@@ -208,6 +208,31 @@ public class ServiceHostIpcTests : IDisposable
         Assert.Empty(status.FailedFiles);
     }
 
+    /// <summary>挂起定位诊断：pump 持 pending 读 + 服务端并发写（与事件推送同模式，单读单写）。</summary>
+    [Fact]
+    public async Task PipeDiagnostic_ConcurrentReadWrite()
+    {
+        // pump 已在 ctor 启动并持有 _server 的 pending 读；此处并发写一帧（模拟事件推送）
+        byte[] frame = [1, 2, 3, 4];
+        await StepAsync("diag-并发写", () => _server.WriteAsync(frame).AsTask());
+
+        var echo = new byte[frame.Length];
+        await StepAsync("diag-客户端读", () => _client.ReadAsync(echo).AsTask());
+        Assert.Equal(frame, echo);
+
+        // 客户端发 12 字节请求头（载荷 0、方法号 99 未知），让 pump 的 pending 读完成并分发
+        byte[] header = new byte[12];
+        BitConverter.GetBytes(99).CopyTo(header, 6);
+        BitConverter.GetBytes(77u).CopyTo(header, 8);
+        await StepAsync("diag-客户端写", () => _client.WriteAsync(header).AsTask());
+
+        // pump 分发 unknown method → 写 ack；客户端读到 ack 即证明 pending 读完成、pump 存活
+        var (method, seq, body) = await StepAsync<(ushort, uint, byte[])>("diag-读ack", () => ReadFrameAsync());
+        Assert.Equal((ushort)99, method);
+        Assert.Equal(77u, seq);
+        Assert.False(ReadJson<AckResponse>(body).Ok);
+    }
+
     [Fact]
     public async Task Subscribe_PushesEventFrame_UnsubscribeStops()
     {
