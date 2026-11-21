@@ -21,19 +21,6 @@ public partial class App : Application
     public void ShowMainWindow()
     {
         if (_mainWindow is null) return;
-        _mainWindow.Activate();
-        Microsoft.UI.Xaml.WindowInteropHelper? _ = null; // WinUI3 前置由 AppWindow 处理
-        _mainWindow.DispatcherQueue.TryEnqueue(() =>
-        {
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_mainWindow);
-            Windows.Win32.PInvoke.ShowWindow(hwnd, Windows.Win32.UI.WindowsAndMessaging.SHOW_WINDOW_CMD.SW_SHOW);
-            SetForegroundWindowSafe(hwnd);
-        });
-    }
-
-    private static void SetForegroundWindowSafe(IntPtr hwnd)
-    {
-        // WinUI3 无直接前台 API，走 AppWindow.IsAlwaysOnTop 短暂置顶再取消
-        // 简化实现：依赖 Activate() 的系统前置行为；真机验收时按需补强
+        _mainWindow.Activate(); // WinUI3 Activate 自带显示与前置；托盘/热键真机验收补强
     }
 }

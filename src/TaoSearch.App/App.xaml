@@ -2,19 +2,18 @@
 <Application
     x:Class="TaoSearch.App.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:TaoSearch.App.Converters">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Styles/Tokens.xaml" />
                 <ResourceDictionary Source="Styles/Controls.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <converters:NullToCollapsedConverter x:Key="NullToCollapsedConverter"
-                xmlns:converters="using:TaoSearch.App.Converters" />
-            <converters:MatchToBrushConverter x:Key="MatchToBrushConverter"
-                xmlns:converters="using:TaoSearch.App.Converters" />
-            <converters:PausedToTextConverter x:Key="PausedToTextConverter"
-                xmlns:converters="using:TaoSearch.App.Converters" />
+            <!-- xmlns 声明必须在根元素（WinUI XamlCompiler 不支持元素级内联 xmlns） -->
+            <converters:NullToCollapsedConverter x:Key="NullToCollapsedConverter" />
+            <converters:MatchToBrushConverter x:Key="MatchToBrushConverter" />
+            <converters:PausedToTextConverter x:Key="PausedToTextConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

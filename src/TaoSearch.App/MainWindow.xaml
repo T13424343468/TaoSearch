@@ -3,6 +3,7 @@
     x:Class="TaoSearch.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:TaoSearch.App.ViewModels"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     Title="TaoSearch">
 
@@ -42,8 +43,7 @@
             <ListView x:Name="ResultList" ItemsSource="{x:Bind ViewModel.Hits, Mode=OneWay}"
                       SelectionChanged="OnResultSelected">
                 <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="vm:HitViewModel"
-                                  xmlns:vm="using:TaoSearch.App.ViewModels">
+                    <DataTemplate x:DataType="vm:HitViewModel">
                         <Border Style="{StaticResource CardBorder}" Margin="0,0,0,8">
                             <StackPanel Spacing="4">
                                 <TextBlock Text="{x:Bind FileName}" Style="{StaticResource BodyText}" TextTrimming="CharacterEllipsis" />

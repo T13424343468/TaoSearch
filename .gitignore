@@ -3,3 +3,6 @@ obj/
 *.user
 .vs/
 artifacts/
+
+# NFS 垃圾文件（沙箱共享文件系统残留）
+.nfs*

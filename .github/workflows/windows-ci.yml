@@ -24,8 +24,16 @@ jobs:
       - name: 编译（零错零警口径，TreatWarningsAsErrors 已在 Directory.Build.props）
         run: dotnet build TaoSearch.Kernel.slnx -c Release --no-restore --nologo
 
-      # 壳层（TaoSearch.App，WinUI3）由壳层班在独立克隆仓推进，编译通过后回归本流水线；
-      # 当前 App 尚未收口（XamlCompiler 红灯），暂不进 CI，避免阻塞主线全量验证。
+      # 壳层（TaoSearch.App，WinUI3）：独立还原+编译，红灯不掩，修红见 XamlCompiler 诊断步
+      - name: 编译壳层（WinUI3，Windows 专属目标框架；独立还原避免 slnx 遗漏）
+        run: dotnet build src/TaoSearch.App/TaoSearch.App.csproj -c Release --nologo
+
+      - name: 壳层编译诊断（失败时导出 XamlCompiler 产物）
+        if: failure()
+        run: |
+          if (Test-Path src/TaoSearch.App/obj) {
+            Get-ChildItem -Recurse src/TaoSearch.App/obj -Filter *.json | ForEach-Object { "=== $($_.FullName) ==="; Get-Content $_.FullName -Raw }
+          }
 
       - name: 单元测试（Windows 真环境跑 MFT/USN 互操作编译产物）
         run: >
