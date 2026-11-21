@@ -33,6 +33,13 @@ public sealed partial class InvertedIndex
             bucket.TryRemove(docId, out _);
     }
 
+    /// <summary>清空全部文档（M4 重建索引用；词表容量随字典释放，重建后重新填充）。</summary>
+    public void Clear()
+    {
+        _postings.Clear();
+        _docs.Clear();
+    }
+
     /// <summary>查词返回命中文档与词频（词频作相关度初值）。</summary>
     public IReadOnlyList<(long DocId, int TermFrequency)> Lookup(string term)
     {

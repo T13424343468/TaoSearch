@@ -3,4 +3,11 @@
     <RootNamespace>TaoSearch.Service</RootNamespace>
     <OutputType>Exe</OutputType>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TaoSearch.Kernel.Contracts\TaoSearch.Kernel.Contracts.csproj" />
+    <ProjectReference Include="..\TaoSearch.Kernel.FsIndex\TaoSearch.Kernel.FsIndex.csproj" />
+    <ProjectReference Include="..\TaoSearch.Kernel.FullText\TaoSearch.Kernel.FullText.csproj" />
+    <ProjectReference Include="..\TaoSearch.Kernel.Query\TaoSearch.Kernel.Query.csproj" />
+    <ProjectReference Include="..\TaoSearch.Kernel.Store\TaoSearch.Kernel.Store.csproj" />
+  </ItemGroup>
 </Project>

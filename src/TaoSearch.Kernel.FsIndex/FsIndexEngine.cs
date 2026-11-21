@@ -177,6 +177,47 @@ public sealed class FsIndexEngine : IDisposable
         }
     }
 
+    /// <summary>
+    /// 按引用号取文件元数据（路径/大小/修改时间），供查询过滤器与全文命中回填（M4 引擎接线）。
+    /// 慢路径记录名即全路径，MFT 路径补卷前缀，与 <see cref="Search"/> 口径一致。
+    /// </summary>
+    public bool TryGetInfo(long fileReference, out string path, out long size, out DateTimeOffset modifiedUtc)
+    {
+        path = string.Empty;
+        size = 0;
+        modifiedUtc = DateTimeOffset.MinValue;
+        bool usedFallback;
+        string prefix;
+        lock (_gate)
+        {
+            usedFallback = _usedFallback;
+            prefix = _volumePrefix;
+        }
+        if (!_index.TryGet(fileReference, out var rec) || rec.Deleted) return false;
+        string relative = _index.BuildPath(fileReference);
+        path = usedFallback || relative.Length == 0 ? relative : prefix + relative;
+        size = rec.Size;
+        modifiedUtc = rec.ModifiedUtc;
+        return true;
+    }
+
+    /// <summary>现存文件「引用号+完整路径」全集枚举（M4 内容索引用：重建时喂给 ContentIndexer，避免逐事件回查）。</summary>
+    public IEnumerable<(long FileReference, string Path)> EnumerateLivePaths()
+    {
+        bool usedFallback;
+        string prefix;
+        lock (_gate)
+        {
+            usedFallback = _usedFallback;
+            prefix = _volumePrefix;
+        }
+        foreach (var (fileRef, _, _, _, _) in _index.EnumerateLive())
+        {
+            string relative = _index.BuildPath(fileRef);
+            yield return (fileRef, usedFallback || relative.Length == 0 ? relative : prefix + relative);
+        }
+    }
+
     public FsIndexStatus Snapshot()
     {
         lock (_gate)
