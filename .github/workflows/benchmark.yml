@@ -8,7 +8,7 @@ on:
 jobs:
   real-volume-bench:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -24,11 +24,26 @@ jobs:
       - name: 编译（零错零警口径）
         run: dotnet build TaoSearch.Kernel.slnx -c Release --no-restore --nologo
 
-      - name: "真实卷基准（仅 Benchmark 类：扫 C 盘卷 + 20 条查询集 P50/P95）"
-        run: >
-          dotnet test TaoSearch.Kernel.slnx -c Release --no-build --nologo
-          --filter "Category=Benchmark"
-          --logger "trx;LogFileName=taosearch-bench.trx" --results-directory "D:\taosearch-bench"
+      - name: "管理员权限真卷基准（方案 A：计划任务最高权限，验证 MFT 直读）"
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $out = "D:\taosearch-bench"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $repo = (Get-Location).Path
+          $dotnet = (Get-Command dotnet.exe).Source
+          $script = Join-Path $repo "scripts\run-bench-elevated.ps1"
+
+          $arg = "-NoProfile -ExecutionPolicy Bypass -File `"$script`" -DotNetExe `"$dotnet`" -RepoRoot `"$repo`" -ResultsDir `"$out`""
+          $action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument $arg -WorkingDirectory $repo
+          Register-ScheduledTask -TaskName "TaoSearchBench" -Action $action -RunLevel Highest -User $env:USERNAME | Out-Null
+          Start-ScheduledTask -TaskName "TaoSearchBench"
+
+          while ((Get-ScheduledTask -TaskName "TaoSearchBench").State -eq "Running") { Start-Sleep -Seconds 10 }
+          $result = (Get-ScheduledTaskInfo -TaskName "TaoSearchBench").LastTaskResult
+          Write-Host "计划任务退出码：$result（0 = 成功）"
+          if (Test-Path "$out\bench-elevated.log") { Get-Content "$out\bench-elevated.log" -Tail 50 }
+          if ($result -ne 0) { exit 1 }
 
       - name: 上传基准证据
         if: always()
