@@ -1,0 +1,23 @@
+# TaoSearch 基准查询集（基准与量化口径 §1.2，固定 20 条）
+# 六类覆盖：纯子串英文 / 纯子串中文 / 正则 / 属性过滤组合 / 高频短词 / 大小写与全词
+# 每行一条；# 开头为注释行，解析时跳过
+setup
+readme
+系统
+配置
+regex:^setup.*\.exe$
+regex:report.*\d{4}
+regex:.*\.log$
+path:Windows setup
+ext:log error
+size:>10mb
+size:1mb-100mb dll
+dm:2026-01-01
+ext:exe path:Windows
+e
+a
+the
+regex:^(?i)tao.*
+regex:\d{4}-\d{2}
+wholeword:setup
+case:README
