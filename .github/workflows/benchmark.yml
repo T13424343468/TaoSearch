@@ -24,7 +24,7 @@ jobs:
       - name: 编译（零错零警口径）
         run: dotnet build TaoSearch.Kernel.slnx -c Release --no-restore --nologo
 
-      - name: 真实卷基准（仅 Benchmark 类：扫 C: 卷 + 20 条查询集 P50/P95）
+      - name: "真实卷基准（仅 Benchmark 类：扫 C 盘卷 + 20 条查询集 P50/P95）"
         run: >
           dotnet test TaoSearch.Kernel.slnx -c Release --no-build --nologo
           --filter "Category=Benchmark"
