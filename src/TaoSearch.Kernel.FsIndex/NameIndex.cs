@@ -51,7 +51,7 @@ public sealed partial class NameIndex : IDisposable
         public long FileReference;
         public long ParentReference;
         public long Size;
-        public long ModifiedFileTime;
+        public long ModifiedUtcTicks; // .NET ticks（0001 纪元），非 FILETIME——读写两侧必须同纪元
         public int NameOffset;
         public short NameLength;
         public byte Flags;          // bit0: Deleted
@@ -71,7 +71,7 @@ public sealed partial class NameIndex : IDisposable
             FileReference = fileReference,
             ParentReference = parentReference,
             Size = size,
-            ModifiedFileTime = modifiedUtc.UtcTicks,
+            ModifiedUtcTicks = modifiedUtc.UtcTicks,
             NameOffset = nameOffset,
             NameLength = (short)nameLen,
             Flags = 0,
@@ -202,7 +202,7 @@ public sealed partial class NameIndex : IDisposable
             string name = r.NameLength > 0
                 ? Encoding.UTF8.GetString(_names + r.NameOffset, r.NameLength)
                 : string.Empty;
-            rows.Add((r.FileReference, r.ParentReference, name, r.Size, DateTimeOffset.FromFileTime(r.ModifiedFileTime)));
+            rows.Add((r.FileReference, r.ParentReference, name, r.Size, new DateTimeOffset(r.ModifiedUtcTicks, TimeSpan.Zero)));
         }
     }
 
@@ -335,7 +335,7 @@ public sealed partial class NameIndex : IDisposable
         string name = r.NameLength > 0
             ? Encoding.UTF8.GetString(_names + r.NameOffset, r.NameLength)
             : string.Empty;
-        return new NameRecord(r.ParentReference, name, r.Size, DateTimeOffset.FromFileTime(r.ModifiedFileTime));
+        return new NameRecord(r.ParentReference, name, r.Size, new DateTimeOffset(r.ModifiedUtcTicks, TimeSpan.Zero));
     }
 
     // ---- UTF-8 子串匹配 ----

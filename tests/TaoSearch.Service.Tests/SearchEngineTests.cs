@@ -82,6 +82,8 @@ public class SearchEngineTests : IDisposable
         Assert.EndsWith("alpha report.txt", hit.Path, StringComparison.Ordinal);
         Assert.Equal("alpha report.txt", hit.FileName);
         Assert.Equal(100, hit.Size);
+        // 时间戳回归：写入侧存 .NET ticks，读侧必须同纪元解读（曾误用 FILETIME 致偏移 1600 年）
+        Assert.Equal(T1, hit.ModifiedTime);
         Assert.Equal(0, hit.Score);
         Assert.Null(hit.Preview);
     }

@@ -84,7 +84,7 @@ public sealed partial class NameIndex
         {
             ref Rec r = ref _records[i];
             if ((r.Flags & RecFlagDeleted) != 0) continue;
-            WriteRecord(recBuf, r.FileReference, r.ParentReference, r.Size, r.ModifiedFileTime, recOffset, r.NameLength);
+            WriteRecord(recBuf, r.FileReference, r.ParentReference, r.Size, r.ModifiedUtcTicks, recOffset, r.NameLength);
             sink.Write(recBuf);
             bodyCrc = Crc32.Update(bodyCrc, recBuf);
             recOffset += r.NameLength;
@@ -192,7 +192,7 @@ public sealed partial class NameIndex
             FileReference = fileReference,
             ParentReference = parentReference,
             Size = size,
-            ModifiedFileTime = modifiedFileTimeUtcTicks,
+            ModifiedUtcTicks = modifiedFileTimeUtcTicks,
             NameOffset = nameOffset,
             NameLength = (short)nameUtf8.Length,
             Flags = 0,
