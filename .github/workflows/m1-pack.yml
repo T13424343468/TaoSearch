@@ -42,12 +42,6 @@ jobs:
           "BALEXT=$balDll" | Out-File -FilePath $env:GITHUB_ENV -Append
           "UTILEXT=$utilDll" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: 构建 MSI + 引导安装器（微信风格 MSI + 运行时联网装）
-        shell: pwsh
-        run: |
-          ./installer/msi/package.ps1 -PublishDir installer/publish -OutDir artifacts/installer -WixExe "$env:WIXEXE" -BalExtPath "$env:BALEXT" -UtilExtPath "$env:UTILEXT"
-          if ($LASTEXITCODE -ne 0) { Write-Host "::error::安装器构建失败"; exit 1 }
-
       - name: 发布框架依赖产物（不内置运行时，按 2026-11-21 新标准装时联网补）
         shell: pwsh
         run: |
