@@ -104,6 +104,7 @@ jobs:
           ./installer/msi/diag-app.ps1 -ExePath "$root/v0-out/ManifestProbe.exe" -Start
 
           # V2: 无清单发布 (隔离清单嵌入因素)
+                    Remove-Item -Recurse -Force src/TaoSearch.App/obj -ErrorAction SilentlyContinue
           dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v2-out" -p:ApplicationManifest= --nologo
           ./installer/msi/diag-app.ps1 -ExePath "$root/v2-out/TaoSearch.App.exe" -Start
 
@@ -133,13 +134,15 @@ jobs:
             '</assembly>'
           )
           [System.IO.File]::WriteAllLines($v3m, $v3Lines)
-          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v3-out" -p:ApplicationManifest=$v3m --nologo
+                    $v3mAbs = (Resolve-Path $v3m).Path
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v3-out" -p:ApplicationManifest=$v3mAbs --nologo
           ./installer/msi/diag-app.ps1 -ExePath "$root/v3-out/TaoSearch.App.exe" -Start
 
           # V4: 原清单 + assemblyIdentity 补 type="win32"
           $v4m = Join-Path $root "typed.manifest"
           (Get-Content src/TaoSearch.App/app.manifest -Raw) -replace '<assemblyIdentity version="1.0.0.0" name="TaoSearch.App"/>', '<assemblyIdentity type="win32" version="1.0.0.0" name="TaoSearch.App"/>' | Out-File $v4m -Encoding utf8
-          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v4-out" -p:ApplicationManifest=$v4m --nologo
+                    $v4mAbs = (Resolve-Path $v4m).Path
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v4-out" -p:ApplicationManifest=$v4mAbs --nologo
           ./installer/msi/diag-app.ps1 -ExePath "$root/v4-out/TaoSearch.App.exe" -Start
 
       - name: 模拟安装验证（静默装→验文件注册表→启动→卸载干净，四步留痕）
