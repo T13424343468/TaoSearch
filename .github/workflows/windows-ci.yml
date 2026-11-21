@@ -56,6 +56,7 @@ jobs:
         run: >
           dotnet test TaoSearch.Kernel.slnx -c Release --no-build --nologo
           --filter "Category!=Benchmark" --logger "trx;LogFileName=taosearch-tests.trx" --results-directory "D:\taosearch-test-results"
+          --blame-hang --blame-hang-timeout 3m --blame-hang-dump-type mini
 
       - name: 上传测试证据
         if: always()

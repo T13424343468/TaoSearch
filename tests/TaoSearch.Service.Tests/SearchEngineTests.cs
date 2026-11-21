@@ -176,7 +176,9 @@ public class SearchEngineTests : IDisposable
     [Fact]
     public async Task RegexSearch_MatchesFullPath()
     {
-        var batches = await CollectAsync(new QuerySpec { Text = "regex:al.*a", Scope = QueryScope.Filename });
+        // 全路径匹配语义：模式横跨目录段（taosearch-eng-*）与文件段（alpha），
+        // 不写 al.*a——CI 的 AppData\Local\Temp 路径天然含 al..a，会误伤其他文件
+        var batches = await CollectAsync(new QuerySpec { Text = "regex:taosearch-eng.*alpha", Scope = QueryScope.Filename });
 
         var batch = Assert.Single(batches);
         var hit = Assert.Single(batch.Hits);
