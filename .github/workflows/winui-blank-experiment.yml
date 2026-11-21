@@ -320,3 +320,82 @@ jobs:
             if ($msg.Length -gt 300) { $msg = $msg.Substring(0, 300) }
             Write-Host ("  I事件[" + $_.TimeCreated.ToString("HH:mm:ss") + "][" + $_.ProviderName + "] " + $msg)
           }
+      - name: 变体J 真身 + 完整XAML但构造函数剥离(排除构造代码)
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse src real-src-j
+          $mwCs = @'
+          using Microsoft.UI.Xaml;
+          using Microsoft.UI.Xaml.Controls;
+          using TaoSearch.App.Services;
+          using TaoSearch.App.ViewModels;
+
+          namespace TaoSearch.App;
+
+          /// <summary>实验J：保留完整XAML与事件方法，构造函数只做InitializeComponent。</summary>
+          public sealed partial class MainWindow : Window
+          {
+              private readonly SearchGateway _gateway = new();
+              public MainViewModel ViewModel { get; } = null!;
+              public SettingsViewModel SettingsViewModel { get; } = null!;
+
+              public MainWindow()
+              {
+                  InitializeComponent();
+                  Title = "TaoSearch";
+              }
+
+              private void OnSearchTextChanged(object sender, RoutedEventArgs e) { }
+
+              private void OnScopeToggled(object sender, RoutedEventArgs e) { }
+
+              private void OnResultSelected(object sender, SelectionChangedEventArgs e) { }
+
+              private void OnNavChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args) { }
+          }
+          '@
+          [System.IO.File]::WriteAllText("real-src-j/TaoSearch.App/MainWindow.xaml.cs", $mwCs, (New-Object System.Text.UTF8Encoding($false)))
+          dotnet publish real-src-j/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o real-j-out --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体J发布失败"; exit 1 }
+          $p = Start-Process -FilePath "real-j-out/TaoSearch.App.exe" -WorkingDirectory "real-j-out" -PassThru
+          Start-Sleep -Seconds 12
+          $alive = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体J: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "TaoSearch.App" -Force -ErrorAction SilentlyContinue
+          } else { try { Write-Host ("变体J: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体J: 进程已退出" } }
+          Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2; StartTime=(Get-Date).AddMinutes(-2)} -ErrorAction SilentlyContinue | Select-Object -First 3 | ForEach-Object {
+            $msg = if ($_.Message) { ($_.Message -replace "\s+", " ") } else { "(无正文)" }
+            if ($msg.Length -gt 300) { $msg = $msg.Substring(0, 300) }
+            Write-Host ("  J事件[" + $_.TimeCreated.ToString("HH:mm:ss") + "][" + $_.ProviderName + "] " + $msg)
+          }
+
+      - name: 变体K 真身 + 完整构造但XAML去掉ListView数据模板(排除模板绑定)
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse src real-src-k
+          # 把 ListView.ItemTemplate 整段替换为空模板引用，其余 XAML 不动
+          $xaml = Get-Content real-src-k/TaoSearch.App/MainWindow.xaml -Raw
+          $idx1 = $xaml.IndexOf("<ListView.ItemTemplate>")
+          $idx2 = $xaml.IndexOf("</ListView.ItemTemplate>")
+          if ($idx1 -ge 0 -and $idx2 -gt $idx1) {
+            $xaml = $xaml.Substring(0, $idx1) + $xaml.Substring($idx2 + "</ListView.ItemTemplate>".Length)
+            [System.IO.File]::WriteAllText("real-src-k/TaoSearch.App/MainWindow.xaml", $xaml, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Host "已移除 ItemTemplate"
+          }
+          dotnet publish real-src-k/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o real-k-out --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体K发布失败"; exit 1 }
+          $p = Start-Process -FilePath "real-k-out/TaoSearch.App.exe" -WorkingDirectory "real-k-out" -PassThru
+          Start-Sleep -Seconds 12
+          $alive = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体K: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "TaoSearch.App" -Force -ErrorAction SilentlyContinue
+          } else { try { Write-Host ("变体K: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体K: 进程已退出" } }
+          Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2; StartTime=(Get-Date).AddMinutes(-2)} -ErrorAction SilentlyContinue | Select-Object -First 3 | ForEach-Object {
+            $msg = if ($_.Message) { ($_.Message -replace "\s+", " ") } else { "(无正文)" }
+            if ($msg.Length -gt 300) { $msg = $msg.Substring(0, 300) }
+            Write-Host ("  K事件[" + $_.TimeCreated.ToString("HH:mm:ss") + "][" + $_.ProviderName + "] " + $msg)
+          }
