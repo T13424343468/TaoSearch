@@ -64,6 +64,27 @@ jobs:
           Write-Host "已签名：$signed"
           Get-ChildItem artifacts\msix\*.msix | ForEach-Object { Write-Host "$($_.Name) $($_.Length) 字节" }
 
+      - name: 构建安装器（Inno Setup：集成功能勾选页 + 运行时按新标准联网装）
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = Get-ChildItem "C:\Program Files*\Inno Setup 6\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) { Write-Host "::error::ISCC 未找到"; exit 1 }
+          Write-Host "ISCC: $($iscc.FullName)"
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o installer/publish --nologo
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o installer/publish --nologo
+          & $iscc.FullName "installer\setup.iss"
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::安装器编译失败"; exit 1 }
+          Get-ChildItem artifacts/installer | ForEach-Object { Write-Host "$($_.Name) $($_.Length) 字节" }
+
+      - name: 上传安装器
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: artifacts/installer/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
       - name: 包体基线三口径实测
         shell: pwsh
         run: |
