@@ -93,6 +93,7 @@ jobs:
             artifacts/installer/*.msi
             artifacts/installer/TaoSearch-*.exe
             verify-install.log
+            burn-install.log
             artifacts/pack-baseline.txt
           if-no-files-found: error
           retention-days: 14

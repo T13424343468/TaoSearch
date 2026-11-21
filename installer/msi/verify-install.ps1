@@ -22,12 +22,23 @@ $ctxKey = "HKLM:\SOFTWARE\Classes\Directory\shell\TaoSearch"
 
 # ---- 第 1 步: 静默安装 (引导安装器自动联网补运行时) ----
 Log "STEP1 静默安装开始: $InstallerExe"
-$p = Start-Process -FilePath $InstallerExe -ArgumentList "/quiet", "InstallFolder=`"$InstallDir`"", "/norestart" -Wait -PassThru
+$burnLog = Join-Path (Get-Location) "burn-install.log"
+$p = Start-Process -FilePath $InstallerExe -ArgumentList "/quiet", "InstallFolder=`"$InstallDir`"", "/norestart", "/log `"$burnLog`"" -Wait -PassThru
 Log ("STEP1 安装器退出码: " + $p.ExitCode)
 Assert ($p.ExitCode -eq 0) "静默安装退出码为 0"
 
 # ---- 第 2 步: 验证文件与注册表 ----
 Log "STEP2 验证文件与注册表"
+# 诊断留痕: 分别核对 C 盘指定目录与 D 盘默认目录, 并抽取 Burn 日志里的目录变量
+foreach ($probe in @("C:\Program Files\TaoSearch", "D:\Program Files\TaoSearch")) {
+    Log ("STEP2 探测 {0}: {1}" -f $probe, (Test-Path (Join-Path $probe $exeName)))
+}
+if (Test-Path $burnLog) {
+    $varLines = Select-String -Path $burnLog -Pattern "InstallFolder" -ErrorAction SilentlyContinue | Select-Object -First 6
+    foreach ($v in $varLines) { Log ("STEP2 Burn日志: " + $v.Line.Trim()) }
+} else {
+    Log "STEP2 Burn日志不存在"
+}
 Assert (Test-Path (Join-Path $InstallDir $exeName)) "主程序已安装到目标目录"
 $arp = Get-ChildItem $runKey -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq "TaoSearch" }
 Assert ($null -ne $arp) "卸载注册项已登记"
