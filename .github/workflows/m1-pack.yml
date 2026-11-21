@@ -71,7 +71,8 @@ jobs:
         shell: pwsh
         run: |
           $exe = Get-ChildItem artifacts/installer/TaoSearch-*.exe | Select-Object -First 1
-          ./installer/msi/verify-install.ps1 -InstallerExe $exe.FullName -InstallDir "C:\Program Files\TaoSearch"
+          # 用独特路径验证 Burn 变量→MSI 属性→安装目录的覆盖链路 (与 x64 默认目录 C:\Program Files\TaoSearch 可区分)
+          ./installer/msi/verify-install.ps1 -InstallerExe $exe.FullName -InstallDir "C:\TaoSearchVerify"
           if ($LASTEXITCODE -ne 0) { Write-Host "::error::模拟安装验证失败"; exit 1 }
 
       - name: 包体基线两口径实测

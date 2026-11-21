@@ -86,8 +86,9 @@ $wxs = @"
            UpgradeCode="$UpgradeCode" Scope="perMachine" Compressed="yes">
     <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="已安装了更新版本的 TaoSearch，如需重装请先在“应用”中卸载。" AllowSameVersionUpgrades="yes" />
     <!-- 默认装 D 盘 (D:\Program Files\TaoSearch, 界面可改): 与 TaoZip/TaoPad 相同的"目录同名属性覆盖"写法,
-         该写法在用户真机反复验证可装; 此前的自定义动作写法在该机触发 2723 (动作类型不受支持), 弃用 -->
-    <Property Id="INSTALLFOLDER" Value="D:\Program Files\TaoSearch" />
+         该写法在用户真机反复验证可装; 此前的自定义动作写法在该机触发 2723 (动作类型不受支持), 弃用
+         Secure=yes: Burn 提升权限安装时命令行属性须列入 SecureCustomProperties 才能传到服务端, 否则被忽略 -->
+    <Property Id="INSTALLFOLDER" Value="D:\Program Files\TaoSearch" Secure="yes" />
     <!-- 装/卸/升级前先结束运行中的 TaoSearch: 与 TaoZip 相同的双动作写法; Return=ignore: 程序本来没在运行时报错不影响安装 -->
     <CustomAction Id="SetKillCmd" Property="KILLCMD" Value="[SystemFolder]taskkill.exe" />
     <CustomAction Id="KillRunningApp" Property="KILLCMD"
@@ -303,7 +304,7 @@ $outFull = (Resolve-Path $OutDir).Path
 $msi = Join-Path $outFull "TaoSearch-$ProductVersion-x64.msi"
 if (Test-Path $msi) { Remove-Item $msi -Force }
 Write-Host "构建产品 MSI..."
-& $WixExe build $wxsPath -pdbtype none -o $msi 2>&1 | Tee-Object -FilePath (Join-Path $outFull "msi-build.log")
+& $WixExe build $wxsPath -arch x64 -pdbtype none -o $msi 2>&1 | Tee-Object -FilePath (Join-Path $outFull "msi-build.log")
 if ($LASTEXITCODE -ne 0) {
     Write-Host "打包配置已保存: $wxsPath (排错用, 请把此文件与上方完整报错一并发出)"
     throw "WiX 构建 msi 失败"

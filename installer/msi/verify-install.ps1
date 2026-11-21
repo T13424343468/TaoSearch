@@ -29,12 +29,12 @@ Assert ($p.ExitCode -eq 0) "静默安装退出码为 0"
 
 # ---- 第 2 步: 验证文件与注册表 ----
 Log "STEP2 验证文件与注册表"
-# 诊断留痕: 分别核对 C 盘指定目录与 D 盘默认目录, 并抽取 Burn 日志里的目录变量
-foreach ($probe in @("C:\Program Files\TaoSearch", "D:\Program Files\TaoSearch")) {
+# 诊断留痕: 核对目标目录与两个默认目录, 并抽取 Burn 日志里的目录变量
+foreach ($probe in @($InstallDir, "C:\Program Files\TaoSearch", "D:\Program Files\TaoSearch")) {
     Log ("STEP2 探测 {0}: {1}" -f $probe, (Test-Path (Join-Path $probe $exeName)))
 }
-# 诊断留痕: 枚举各 Program Files 下 TaoSearch 相关目录与嵌套内容, 定位文件实际去向
-foreach ($root in @("C:\Program Files", "C:\Program Files (x86)", "D:\Program Files")) {
+# 诊断留痕: 枚举常见落盘点 TaoSearch 相关目录与嵌套内容, 定位文件实际去向
+foreach ($root in @("C:\Program Files", "C:\Program Files (x86)", "D:\Program Files", "C:\")) {
     $dirs = Get-ChildItem $root -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Tao*" }
     foreach ($d in $dirs) {
         Log ("STEP2 发现目录: " + $d.FullName)
