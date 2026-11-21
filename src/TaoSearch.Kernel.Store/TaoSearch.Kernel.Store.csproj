@@ -2,4 +2,8 @@
   <PropertyGroup>
     <RootNamespace>TaoSearch.Kernel.Store</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TaoSearch.Kernel.Contracts\TaoSearch.Kernel.Contracts.csproj" />
+    <ProjectReference Include="..\TaoSearch.Kernel.FsIndex\TaoSearch.Kernel.FsIndex.csproj" />
+  </ItemGroup>
 </Project>

@@ -11,7 +11,7 @@ namespace TaoSearch.Kernel.FsIndex;
 /// 子串扫描用 SearchValues 命中候选位（SIMD 加速），UTF-8 字节级 ASCII 大小写折叠比较
 /// （非 ASCII 字节精确匹配，语义与 OrdinalIgnoreCase 对 UTF-8 一致）。
 /// </summary>
-public sealed class NameIndex : IDisposable
+public sealed partial class NameIndex : IDisposable
 {
     private const double LoadFactor = 0.7;
     private const int InitialCapacity = 1024;
@@ -180,6 +180,31 @@ public sealed class NameIndex : IDisposable
     }
 
     public unsafe int Count => _count;
+
+    /// <summary>
+    /// 枚举全部活跃记录（快照导出用，非查询热路径；删除记录不产出）。
+    /// 迭代器体内不允许指针：先物化为列表再返回。
+    /// </summary>
+    public IEnumerable<(long FileReference, long ParentReference, string FileName, long Size, DateTimeOffset ModifiedUtc)> EnumerateLive()
+    {
+        ThrowIfDisposed();
+        var rows = new List<(long FileReference, long ParentReference, string FileName, long Size, DateTimeOffset ModifiedUtc)>(_count);
+        CollectLive(rows);
+        return rows;
+    }
+
+    private unsafe void CollectLive(List<(long FileReference, long ParentReference, string FileName, long Size, DateTimeOffset ModifiedUtc)> rows)
+    {
+        for (int i = 0; i < _recordCount; i++)
+        {
+            ref Rec r = ref _records[i];
+            if ((r.Flags & RecFlagDeleted) != 0) continue;
+            string name = r.NameLength > 0
+                ? Encoding.UTF8.GetString(_names + r.NameOffset, r.NameLength)
+                : string.Empty;
+            rows.Add((r.FileReference, r.ParentReference, name, r.Size, DateTimeOffset.FromFileTime(r.ModifiedFileTime)));
+        }
+    }
 
     /// <summary>当前实际分配的非托管内存（字节）——内存预算表（架构 §4.4）逐项实测口径。</summary>
     public unsafe long AllocatedBytes =>

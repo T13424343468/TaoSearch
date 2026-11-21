@@ -104,6 +104,15 @@ public interface IParser
     IEnumerable<TextChunk> Parse(Stream content, CancellationToken ct = default);
 }
 
+/// <summary>
+/// 事件日志写入点（M3 持久化挂点）：引擎在应用事件前先落 journal（先写后应用），
+/// 强杀后按 journal 重放不丢事件；重放幂等（Upsert 同引用号覆盖、Remove 缺失即忽略）。
+/// </summary>
+public interface IJournalSink
+{
+    void Write(FileEvent e);
+}
+
 /// <summary>解析出的文本块（带偏移，供命中段落回读）。</summary>
 public readonly record struct TextChunk(long Offset, string Text);
 
