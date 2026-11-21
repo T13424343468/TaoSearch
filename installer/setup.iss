@@ -11,7 +11,7 @@
 #define WinAppSdkUrl "https://aka.ms/windowsappsdk/1.8/latest/windowsappruntimeinstall-x64.exe"
 
 [Setup]
-AppId={400FD9CB-5592-4075-A9A2-BCC34605B354}
+AppId={{400FD9CB-5592-4075-A9A2-BCC34605B354}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
