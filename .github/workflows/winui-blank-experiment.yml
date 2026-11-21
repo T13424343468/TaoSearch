@@ -161,13 +161,13 @@ jobs:
                   try
                   {
                       var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "taosearch.ico");
-                      Write-Host("icon exists: " + System.IO.File.Exists(iconPath));
+                      System.Console.WriteLine("icon exists: " + System.IO.File.Exists(iconPath));
                       w.AppWindow.SetIcon(iconPath);
-                      Write-Host("SetIcon 完成");
+                      System.Console.WriteLine("SetIcon done");
                   }
                   catch (System.Exception ex)
                   {
-                      Write-Host("SetIcon异常: " + ex.Message);
+                      System.Console.WriteLine("SetIcon异常: " + ex.Message);
                   }
                   w.Activate();
               }
