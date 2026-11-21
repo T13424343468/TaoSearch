@@ -121,7 +121,11 @@ public static class ServiceHostFactory
     }
 }
 
-/// <summary>命名管道服务端：帧协议 [4B 载荷长度][2B 版本][2B 方法号][4B 序号][载荷]（架构 §3.4）。</summary>
+/// <summary>
+/// 命名管道服务端：帧协议 [4B 载荷长度][2B 版本][2B 方法号][4B 序号][载荷]（架构 §3.4）。
+/// 读写串行化由 <see cref="PipeSession"/> 承担：Windows 实测同实例 pending 读 + 并发写会挂死，
+/// 事件推送帧经 Post 入队由连接泵统一写出，杜绝并发写。
+/// </summary>
 public sealed class PipeServer(string pipeName, ServiceHost host)
 {
     public async Task RunAsync(CancellationToken ct)
@@ -131,57 +135,9 @@ public sealed class PipeServer(string pipeName, ServiceHost host)
             var client = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 4,
                 PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
             await client.WaitForConnectionAsync(ct);
-            _ = HandleClientAsync(client, ct); // 每连接一任务，服务不因单客户端阻塞
+            var session = new PipeSession(client);
+            _ = Task.Run(() => session.RunAsync(host, ct), ct); // 每连接一任务，服务不因单客户端阻塞
         }
-    }
-
-    private async Task HandleClientAsync(NamedPipeServerStream pipe, CancellationToken ct)
-    {
-        try
-        {
-            var header = new byte[12];
-            while (!ct.IsCancellationRequested && pipe.IsConnected)
-            {
-                int read = await ReadExactlyAsync(pipe, header, ct);
-                if (read < 12) return;
-
-                uint payloadLength = BitConverter.ToUInt32(header, 0);
-                ushort version = BitConverter.ToUInt16(header, 4);
-                ushort method = BitConverter.ToUInt16(header, 6);
-                uint seq = BitConverter.ToUInt32(header, 8);
-
-                if (payloadLength > PipeServerLimits.MaxPayloadBytes) return; // 异常帧直接断开，防内存打爆
-
-                var payload = new byte[payloadLength];
-                if (payloadLength > 0)
-                {
-                    int payloadRead = await ReadExactlyAsync(pipe, payload, ct);
-                    if (payloadRead < payloadLength) return;
-                }
-
-                await host.DispatchAsync(method, version, seq, payload,
-                    async (frame, token) =>
-                    {
-                        await pipe.WriteAsync(frame, token);
-                        await pipe.FlushAsync(token);
-                    }, ct);
-            }
-        }
-        catch (IOException) { /* 客户端断开属正常 */ }
-        catch (OperationCanceledException) { }
-        finally { pipe.Dispose(); }
-    }
-
-    private static async Task<int> ReadExactlyAsync(Stream s, byte[] buffer, CancellationToken ct)
-    {
-        int total = 0;
-        while (total < buffer.Length)
-        {
-            int n = await s.ReadAsync(buffer.AsMemory(total), ct);
-            if (n == 0) break;
-            total += n;
-        }
-        return total;
     }
 }
 

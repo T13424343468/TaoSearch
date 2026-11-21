@@ -24,6 +24,7 @@ public class ServiceHostIpcTests : IDisposable
     private readonly ServiceHost _host;
     private readonly NamedPipeServerStream _server;
     private readonly NamedPipeClientStream _client;
+    private readonly PipeSession _session;
     private readonly Task _pump;
 
     public ServiceHostIpcTests()
@@ -54,7 +55,9 @@ public class ServiceHostIpcTests : IDisposable
         _client.Connect(10_000);
         _server.WaitForConnection();
 
-        _pump = Task.Run(PumpAsync);
+        // 读写串行化会话：Windows 实测同实例 pending 读 + 并发写挂死，事件推送帧经 Post 入队由泵写出
+        _session = new PipeSession(_server);
+        _pump = Task.Run(() => _session.RunAsync(_host, CancellationToken.None));
     }
 
     /// <summary>xUnit v2 不调用 IAsyncDisposable.DisposeAsync，改用 IDisposable 确保逐测试释放管道与内容索引器。</summary>
@@ -84,33 +87,14 @@ public class ServiceHostIpcTests : IDisposable
         await Task.CompletedTask;
     }
 
-    /// <summary>服务端泵：逐帧读取请求 → ServiceHost 分发（响应帧写回同一条管道）。</summary>
-    private async Task PumpAsync()
+    private async Task SendAsync(ushort method, uint seq, ReadOnlyMemory<byte> payload)
     {
-        var buffer = new byte[16];
-        try
-        {
-            while (true)
-            {
-                await ReadExactAsync(_server, buffer.AsMemory(0, 12));
-                int payloadLength = BitConverter.ToInt32(buffer, 0);
-                ushort method = BitConverter.ToUInt16(buffer, 6);
-                uint seq = BitConverter.ToUInt32(buffer, 8);
-                var payload = new byte[payloadLength];
-                if (payloadLength > 0)
-                    await ReadExactAsync(_server, payload);
-
-                await _host.DispatchAsync(method, IpcProtocol.Version, seq, payload,
-                    (frame, ct) => _server.WriteAsync(frame, ct), CancellationToken.None);
-                await _server.FlushAsync();
-            }
-        }
-        catch (Exception)
-        {
-            // 管道断开：测试收尾，正常退出
-        }
+        byte[] frame = FrameWriter.Encode(method, seq, payload.Span);
+        await _client.WriteAsync(frame);
+        await _client.FlushAsync();
     }
 
+    /// <summary>客户端侧精确读：客户端单线程顺序读写，无并发写，直接循环读满。</summary>
     private static async Task ReadExactAsync(Stream stream, Memory<byte> target)
     {
         int filled = 0;
@@ -120,13 +104,6 @@ public class ServiceHostIpcTests : IDisposable
             if (read == 0) throw new EndOfStreamException("管道已断开");
             filled += read;
         }
-    }
-
-    private async Task SendAsync(ushort method, uint seq, ReadOnlyMemory<byte> payload)
-    {
-        byte[] frame = FrameWriter.Encode(method, seq, payload.Span);
-        await _client.WriteAsync(frame);
-        await _client.FlushAsync();
     }
 
     private async Task<(ushort Method, uint Seq, byte[] Payload)> ReadFrameAsync()
@@ -206,67 +183,6 @@ public class ServiceHostIpcTests : IDisposable
         Assert.True(status.FilenameIndexReady);
         Assert.True(status.ContentIndexReady);
         Assert.Empty(status.FailedFiles);
-    }
-
-    /// <summary>挂起定位诊断：同一句柄建读写两个单向包装，验证分包装并发读写是否规避同实例挂死。</summary>
-    [Fact]
-    public async Task PipeDiagnostic_TwoStreamWrappers()
-    {
-        string pipeName = "taosearch.diag2." + Guid.NewGuid().ToString("N");
-        var server = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
-        var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        try
-        {
-            client.Connect(10_000);
-            server.WaitForConnection();
-
-            // 同一 SafePipeHandle 建两个单向包装：读走 reader、写走 writer（生产拟采用的修法）
-            using var reader = new NamedPipeServerStream(PipeDirection.In, true, true, server.SafePipeHandle);
-            using var writer = new NamedPipeServerStream(PipeDirection.Out, true, true, server.SafePipeHandle);
-
-            ValueTask<int> pendingRead = reader.ReadAsync(new byte[12]);
-            byte[] frame = [1, 2, 3, 4];
-            await StepAsync("diag2-并发写", () => writer.WriteAsync(frame).AsTask());
-
-            var echo = new byte[frame.Length];
-            await StepAsync("diag2-客户端读", () => client.ReadAsync(echo).AsTask());
-            Assert.Equal(frame, echo);
-
-            byte[] header = new byte[12];
-            await StepAsync("diag2-客户端写", () => client.WriteAsync(header).AsTask());
-            int read = await StepAsync("diag2-pending读完成", () => pendingRead.AsTask());
-            Assert.Equal(12, read);
-        }
-        finally
-        {
-            client.Dispose();
-            server.Dispose();
-        }
-    }
-
-    /// <summary>挂起定位诊断：pump 持 pending 读 + 服务端并发写（与事件推送同模式，单读单写）。</summary>
-    [Fact]
-    public async Task PipeDiagnostic_ConcurrentReadWrite()
-    {
-        // pump 已在 ctor 启动并持有 _server 的 pending 读；此处并发写一帧（模拟事件推送）
-        byte[] frame = [1, 2, 3, 4];
-        await StepAsync("diag-并发写", () => _server.WriteAsync(frame).AsTask());
-
-        var echo = new byte[frame.Length];
-        await StepAsync("diag-客户端读", () => _client.ReadAsync(echo).AsTask());
-        Assert.Equal(frame, echo);
-
-        // 客户端发 12 字节请求头（载荷 0、方法号 99 未知），让 pump 的 pending 读完成并分发
-        byte[] header = new byte[12];
-        BitConverter.GetBytes(99).CopyTo(header, 6);
-        BitConverter.GetBytes(77u).CopyTo(header, 8);
-        await StepAsync("diag-客户端写", () => _client.WriteAsync(header).AsTask());
-
-        // pump 分发 unknown method → 写 ack；客户端读到 ack 即证明 pending 读完成、pump 存活
-        var (method, seq, body) = await StepAsync<(ushort, uint, byte[])>("diag-读ack", () => ReadFrameAsync());
-        Assert.Equal((ushort)99, method);
-        Assert.Equal(77u, seq);
-        Assert.False(ReadJson<AckResponse>(body).Ok);
     }
 
     [Fact]
