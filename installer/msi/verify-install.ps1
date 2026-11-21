@@ -20,6 +20,8 @@ function Assert([bool]$cond, [string]$name) {
 $exeName = "TaoSearch.App.exe"
 $runKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
 $ctxKey = "HKLM:\SOFTWARE\Classes\Directory\shell\TaoSearch"
+$EvidenceDir = Join-Path (Get-Location) "verify-evidence"
+New-Item -ItemType Directory -Path $EvidenceDir -Force | Out-Null
 
 # ---- 第 1 步: 静默安装 (引导安装器自动联网补运行时) ----
 Log "STEP1 静默安装开始: $InstallerExe"
@@ -92,8 +94,29 @@ try {
 Start-Sleep -Seconds 8
 $proc = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue
 Assert ($null -ne $proc) "主程序进程存活（核心页可达）"
+# ---- 界面自动化验证 (制度六.7 视觉出图强制: 无图不算绿) ----
+# 1) 窗口真实创建: 主窗口句柄非零 + 标题匹配
+$winProc = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }
+if (-not $winProc) { Start-Sleep -Seconds 5; $winProc = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } }
+Assert ($null -ne $winProc) "主窗口已创建（窗口句柄非零）"
+$winTitle = [string]$winProc.MainWindowTitle
+Log ("STEP3 主窗口标题: " + $winTitle)
+Assert ($winTitle -match "TaoSearch") "主窗口标题匹配 TaoSearch"
+# 2) 屏幕截图留证: 全屏截图落盘, 启动失败或窗口空白可肉眼核对
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$shot = Join-Path $EvidenceDir "step3-window-screenshot.png"
+$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+$g.Dispose()
+$bmp.Save($shot, [System.Drawing.Imaging.ImageFormat]::Png)
+$bmp.Dispose()
+Log ("STEP3 窗口截图已存: " + $shot + " (" + (Get-Item $shot).Length + " 字节)")
+Assert ((Get-Item $shot).Length -gt 5000) "窗口截图非空白（文件体量合理）"
 Stop-Process -Name "TaoSearch.App" -Force -ErrorAction SilentlyContinue
-Log "STEP3 启动验证通过, 进程已结束"
+Log "STEP3 启动验证通过: 进程存活 + 窗口句柄 + 标题匹配 + 截图留证"
 
 # ---- 第 4 步: 卸载干净 ----
 Log "STEP4 卸载"

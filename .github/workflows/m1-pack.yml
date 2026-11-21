@@ -104,6 +104,7 @@ jobs:
             burn-install.log
             sxs-trace.txt
             sxs-trace.etl
+            verify-evidence/
             artifacts/pack-baseline.txt
           if-no-files-found: error
           retention-days: 14

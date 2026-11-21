@@ -11,12 +11,18 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Platforms>x64</Platforms>
-    <Version>0.1.0.5</Version>
-    <FileVersion>0.1.0.5</FileVersion>
+    <Version>0.1.0.6</Version>
+    <FileVersion>0.1.0.6</FileVersion>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <DefaultLanguage>zh-CN</DefaultLanguage>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\taosearch.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Assets\taosearch.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\TaoSearch.Kernel.Contracts\TaoSearch.Kernel.Contracts.csproj" />
   </ItemGroup>

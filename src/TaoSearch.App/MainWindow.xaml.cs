@@ -19,6 +19,15 @@ public sealed partial class MainWindow : Window
         SettingsViewModel = new SettingsViewModel(_gateway);
         Title = "TaoSearch";
 
+        // 窗口标题栏与任务栏图标（非打包应用从安装目录取 ico）
+        try
+        {
+            var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "taosearch.ico");
+            if (System.IO.File.Exists(iconPath))
+                AppWindow.SetIcon(iconPath);
+        }
+        catch { /* 图标缺失不阻断启动 */ }
+
         // x:Bind 在 Window 根不可用（生成代码要求 FrameworkElement），改 code-behind 接线
         StatusText.Text = ViewModel.StatusText;
         ViewModel.PropertyChanged += (_, e) =>
