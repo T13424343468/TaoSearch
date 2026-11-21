@@ -78,7 +78,7 @@ var
   found: Boolean;
 begin
   Result := False;
-  dir := ExpandConstant('{autoprogramfiles}\dotnet\shared\Microsoft.WindowsDesktop.App');
+  dir := ExpandConstant('{autopf}\dotnet\shared\Microsoft.WindowsDesktop.App');
   if DirExists(dir) then
   begin
     found := False;
