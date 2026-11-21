@@ -90,7 +90,7 @@ begin
             if Pos('10.', sr.Name) = 1 then found := True;
         until (not FindNext(sr)) or found;
       finally
-        FindFree;
+        FindClose(sr);
       end;
     end;
     if found then begin Result := True; Exit; end;
