@@ -3,7 +3,8 @@
 # 用法: powershell -File verify-install.ps1 -InstallerExe <引导安装器exe> [-InstallDir <目录>]
 param(
     [Parameter(Mandatory = $true)][string]$InstallerExe,
-    [string]$InstallDir = "C:\Program Files\TaoSearch"
+    [string]$InstallDir = "C:\Program Files\TaoSearch",
+    [string]$PublishDir = ""
 )
 $ErrorActionPreference = 'Stop'
 $log = Join-Path (Get-Location) "verify-install.log"
@@ -55,6 +56,13 @@ if (Test-Path $burnLog) {
     Log "STEP2 Burn日志不存在"
 }
 Assert (Test-Path (Join-Path $InstallDir $exeName)) "主程序已安装到目标目录"
+# 诊断留痕: 已装文件数与发布产物文件数比对 (发现部分安装/载荷缺失)
+if ($PublishDir -and (Test-Path $PublishDir)) {
+    $pubCount = (Get-ChildItem $PublishDir -Recurse -File | Measure-Object).Count
+    $instCount = (Get-ChildItem $InstallDir -Recurse -File | Measure-Object).Count
+    Log ("STEP2 文件数: 发布 {0} / 已装 {1}" -f $pubCount, $instCount)
+    Assert ($instCount -eq $pubCount) "安装文件数与发布产物一致"
+}
 $arp = Get-ChildItem $runKey -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq "TaoSearch" }
 Assert ($null -ne $arp) "卸载注册项已登记"
 Assert (Test-Path $ctxKey) "右键菜单已注册"
@@ -67,10 +75,18 @@ $exePath = Join-Path $InstallDir $exeName
 Log ("STEP3 主程序大小: " + (Get-Item $exePath).Length + " 字节")
 Get-AppxPackage *WindowsAppRuntime* -ErrorAction SilentlyContinue | ForEach-Object { Log ("STEP3 运行时包: " + $_.Name + " " + $_.Version) }
 Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='SideBySide'} -MaxEvents 3 -ErrorAction SilentlyContinue | ForEach-Object { Log ("STEP3 SideBySide事件: " + ($_.Message -replace "\s+", " ")) }
+# 诊断留痕: 内嵌清单全文 (SxS 失败时核对清单引用的依赖程序集)
+& (Join-Path $PSScriptRoot "diag-app.ps1") -ExePath $exePath
 try {
     Start-Process -FilePath $exePath -WorkingDirectory $InstallDir
 } catch {
     Log ("STEP3 启动异常: " + $_.Exception.Message)
+    # 诊断留痕: 宽事件日志 (最近 20 条 Application 事件, 含 SxS/应用错误详情)
+    Get-WinEvent -LogName Application -MaxEvents 20 -ErrorAction SilentlyContinue | ForEach-Object {
+        $msg = if ($_.Message) { ($_.Message -replace "\s+", " ") } else { "(无正文)" }
+        if ($msg.Length -gt 300) { $msg = $msg.Substring(0, 300) }
+        Log ("STEP3 事件[" + $_.TimeCreated.ToString("HH:mm:ss") + "][" + $_.ProviderName + "]: " + $msg)
+    }
     throw
 }
 Start-Sleep -Seconds 8

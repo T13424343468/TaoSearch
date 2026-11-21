@@ -67,12 +67,19 @@ jobs:
           ./installer/msi/package.ps1 -PublishDir installer/publish -OutDir artifacts/installer -WixExe "$env:WIXEXE" -BalExtPath "$env:BALEXT" -UtilExtPath "$env:UTILEXT" -RuntimeDir "$env:RUNTIMEDIR"
           if ($LASTEXITCODE -ne 0) { Write-Host "::error::安装器构建失败"; exit 1 }
 
+      - name: 对照实验（装前直接运行发布产物，隔离安装器载荷与应用/环境问题）
+        shell: pwsh
+        run: |
+          Write-Host "发布产物顶层文件:"
+          Get-ChildItem installer/publish -File | ForEach-Object { Write-Host ("  {0}  {1:N0} 字节" -f $_.Name, $_.Length) }
+          ./installer/msi/diag-app.ps1 -ExePath installer/publish/TaoSearch.App.exe -WorkingDir installer/publish -Start
+
       - name: 模拟安装验证（静默装→验文件注册表→启动→卸载干净，四步留痕）
         shell: pwsh
         run: |
           $exe = Get-ChildItem artifacts/installer/TaoSearch-*.exe | Select-Object -First 1
           # 用独特路径验证 Burn 变量→MSI 属性→安装目录的覆盖链路 (与 x64 默认目录 C:\Program Files\TaoSearch 可区分)
-          ./installer/msi/verify-install.ps1 -InstallerExe $exe.FullName -InstallDir "C:\TaoSearchVerify"
+          ./installer/msi/verify-install.ps1 -InstallerExe $exe.FullName -InstallDir "C:\TaoSearchVerify" -PublishDir installer/publish
           if ($LASTEXITCODE -ne 0) { Write-Host "::error::模拟安装验证失败"; exit 1 }
 
       - name: 包体基线两口径实测
@@ -95,6 +102,8 @@ jobs:
             artifacts/installer/TaoSearch-*.exe
             verify-install.log
             burn-install.log
+            sxs-trace.txt
+            sxs-trace.etl
             artifacts/pack-baseline.txt
           if-no-files-found: error
           retention-days: 14

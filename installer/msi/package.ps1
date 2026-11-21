@@ -85,11 +85,12 @@ $wxs = @"
   <Package Codepage="936" Name="TaoSearch" Manufacturer="Tao" Version="$ProductVersion"
            UpgradeCode="$UpgradeCode" Scope="perMachine" Compressed="yes">
     <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="已安装了更新版本的 TaoSearch，如需重装请先在“应用”中卸载。" AllowSameVersionUpgrades="yes" />
-    <!-- 默认装 D 盘 (D:\Program Files\TaoSearch, 界面可改): 与 TaoZip/TaoPad 相同的"目录同名属性覆盖"写法,
-         该写法在用户真机反复验证可装; 此前的自定义动作写法在该机触发 2723 (动作类型不受支持), 弃用
+    <!-- 默认装 D 盘 (D:\Program Files\TaoSearch, 界面可改): 制度 D-1/九-3 默认目录要求;
+         目录同名属性覆盖: PathEdit 控件绑定 INSTALLFOLDER 属性, Burn 经 MsiProperty 传入同名属性;
          Secure=yes: Burn 提升权限安装时命令行属性须列入 SecureCustomProperties 才能传到服务端, 否则被忽略 -->
     <Property Id="INSTALLFOLDER" Value="D:\Program Files\TaoSearch" Secure="yes" />
-    <!-- 装/卸/升级前先结束运行中的 TaoSearch: 与 TaoZip 相同的双动作写法; Return=ignore: 程序本来没在运行时报错不影响安装 -->
+    <!-- 装/卸/升级前先结束运行中的 TaoSearch: 覆盖安装时旧进程占用文件会致安装失败;
+         Return=ignore: 程序本来没在运行时报错不影响安装 -->
     <CustomAction Id="SetKillCmd" Property="KILLCMD" Value="[SystemFolder]taskkill.exe" />
     <CustomAction Id="KillRunningApp" Property="KILLCMD"
                   ExeCommand="/f /im TaoSearch.App.exe"
@@ -179,7 +180,7 @@ $wxs = @"
       </Dialog>
 
       <InstallUISequence>
-        <!-- 显式 CostFinalize (与 TaoZip 相同, 950): 先把默认目录算好再弹窗, 目录框不会空着 -->
+        <!-- 显式 CostFinalize (950): 先把默认目录算好再弹窗, 目录框不会空着 -->
         <CostFinalize Sequence="950" />
         <Show Dialog="MainDlg" Sequence="1250" />
         <Show Dialog="ProgressDlg" Before="ExecuteAction" />
