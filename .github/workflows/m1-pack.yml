@@ -108,9 +108,34 @@ jobs:
           dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v2-out" -p:ApplicationManifest= --nologo
           ./installer/msi/diag-app.ps1 -ExePath "$root/v2-out/TaoSearch.App.exe" -Start
 
-          # V3: VS 标准风格清单 (trustInfo + compatibility + windowsSettings)
-          $v3m = Join-Path $root "vs-style.manifest"
-          $v3Lines = @(
+          # V6: 默认清单 + windowsSettings (二分: dpiAwareness 是否为触发源)
+          $v6m = Join-Path $root "v6.manifest"
+          $v6Lines = @(
+            '<?xml version="1.0" encoding="utf-8"?>'
+            '<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">'
+            '  <assemblyIdentity version="1.0.0.0" name="TaoSearch.App"/>'
+            '  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">'
+            '    <security>'
+            '      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">'
+            '        <requestedExecutionLevel level="asInvoker" uiAccess="false" />'
+            '      </requestedPrivileges>'
+            '    </security>'
+            '  </trustInfo>'
+            '  <application xmlns="urn:schemas-microsoft-com:asm.v3">'
+            '    <windowsSettings>'
+            '      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>'
+            '    </windowsSettings>'
+            '  </application>'
+            '</assembly>'
+          )
+          [System.IO.File]::WriteAllLines($v6m, $v6Lines)
+          $v6Abs = (Resolve-Path $v6m).Path
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v6-out" -p:ApplicationManifest=$v6Abs --nologo
+          ./installer/msi/diag-app.ps1 -ExePath "$root/v6-out/TaoSearch.App.exe" -Start
+
+          # V7: 默认清单 + compatibility (二分: supportedOS 是否为触发源)
+          $v7m = Join-Path $root "v7.manifest"
+          $v7Lines = @(
             '<?xml version="1.0" encoding="utf-8"?>'
             '<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">'
             '  <assemblyIdentity version="1.0.0.0" name="TaoSearch.App"/>'
@@ -126,24 +151,20 @@ jobs:
             '      <supportedOS Guid="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />'
             '    </application>'
             '  </compatibility>'
-            '  <application xmlns="urn:schemas-microsoft-com:asm.v3">'
-            '    <windowsSettings>'
-            '      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>'
-            '    </windowsSettings>'
-            '  </application>'
             '</assembly>'
           )
-          [System.IO.File]::WriteAllLines($v3m, $v3Lines)
-                    $v3mAbs = (Resolve-Path $v3m).Path
-          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v3-out" -p:ApplicationManifest=$v3mAbs --nologo
-          ./installer/msi/diag-app.ps1 -ExePath "$root/v3-out/TaoSearch.App.exe" -Start
+          [System.IO.File]::WriteAllLines($v7m, $v7Lines)
+          $v7Abs = (Resolve-Path $v7m).Path
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v7-out" -p:ApplicationManifest=$v7Abs --nologo
+          ./installer/msi/diag-app.ps1 -ExePath "$root/v7-out/TaoSearch.App.exe" -Start
 
-          # V4: 原清单 + assemblyIdentity 补 type="win32"
-          $v4m = Join-Path $root "typed.manifest"
-          (Get-Content src/TaoSearch.App/app.manifest -Raw) -replace '<assemblyIdentity version="1.0.0.0" name="TaoSearch.App"/>', '<assemblyIdentity type="win32" version="1.0.0.0" name="TaoSearch.App"/>' | Out-File $v4m -Encoding utf8
-                    $v4mAbs = (Resolve-Path $v4m).Path
-          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v4-out" -p:ApplicationManifest=$v4mAbs --nologo
-          ./installer/msi/diag-app.ps1 -ExePath "$root/v4-out/TaoSearch.App.exe" -Start
+          # V8: 原清单原样 + UTF-8 BOM (二分: 编码/BOM 是否为触发源)
+          $v8m = Join-Path $root "v8.manifest"
+          $raw = [System.IO.File]::ReadAllText("src/TaoSearch.App/app.manifest")
+          [System.IO.File]::WriteAllText($v8m, $raw, (New-Object System.Text.UTF8Encoding($true)))
+          $v8Abs = (Resolve-Path $v8m).Path
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v8-out" -p:ApplicationManifest=$v8Abs --nologo
+          ./installer/msi/diag-app.ps1 -ExePath "$root/v8-out/TaoSearch.App.exe" -Start
 
       - name: 模拟安装验证（静默装→验文件注册表→启动→卸载干净，四步留痕）
         shell: pwsh
