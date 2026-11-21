@@ -51,6 +51,11 @@ jobs:
           if (Test-Path src/TaoSearch.App/obj) {
             Get-ChildItem -Recurse src/TaoSearch.App/obj -Include output.json,XamlSaveStateFile.xml -ErrorAction SilentlyContinue | ForEach-Object { "=== $($_.FullName) ==="; Get-Content $_.FullName -Raw }
           }
+          $gcs = Get-ChildItem -Recurse src/TaoSearch.App/obj -Filter *.g.cs -ErrorAction SilentlyContinue | Where-Object Name -like "MainWindow*"
+          foreach ($g in $gcs) {
+            Write-Host "===== $($g.FullName) lines 595-640 ====="
+            Get-Content $g.FullName | Select-Object -Skip 594 -First 46
+          }
 
       - name: 单元测试（Windows 真环境跑 MFT/USN 互操作编译产物）
         run: >
