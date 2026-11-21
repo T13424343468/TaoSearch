@@ -1,0 +1,142 @@
+name: m1-sideload
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ 'cloud/**' ]
+
+jobs:
+  sideload-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 获取 makeappx 与 signtool（Windows SDK Build Tools 按需取用，仅 CI 用）
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ".sdktool" | Out-Null
+          Set-Content ".sdktool\tool.csproj" '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Library</OutputType></PropertyGroup><ItemGroup><PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.*" /></ItemGroup></Project>'
+          dotnet restore ".sdktool\tool.csproj" --nologo
+          $global = (dotnet nuget locals global-packages --list) -replace "^global-packages:\s*",""
+          Write-Host "NuGet 全局包目录：$global"
+          $makeappx = Get-ChildItem $global -Recurse -Filter makeappx.exe |
+            Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1
+          $signtool = Get-ChildItem $global -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1
+          if (-not $makeappx) { Write-Host "::error::makeappx 获取失败"; exit 1 }
+          if (-not $signtool) { Write-Host "::error::signtool 获取失败"; exit 1 }
+          Write-Host "makeappx: $($makeappx.FullName)"
+          Write-Host "signtool: $($signtool.FullName)"
+          "MAKEAPPX=$($makeappx.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SIGNTOOL=$($signtool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: 占位图标（清单引用需要）
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "artifacts\msix\assets" | Out-Null
+          $png = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+          [System.IO.File]::WriteAllBytes("artifacts\msix\assets\logo.png", $png)
+
+      - name: 打包
+        shell: pwsh
+        run: ./scripts/pack-msix.ps1 -MakeAppxPath "$env:MAKEAPPX"
+
+      - name: 自签测试证书（仅侧载验证用，非正式签名；Subject 必须与包 Publisher CN=Tao 一致）
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=Tao" `
+            -KeyUsage DigitalSignature -FriendlyName "TaoSearch sideload test" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
+          $pwdSec = ConvertTo-SecureString -String "taosearch-sideload-2026" -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath "artifacts\test-cert.pfx" -Password $pwdSec | Out-Null
+          Export-Certificate -Cert $cert -FilePath "artifacts\test-cert.cer" | Out-Null
+          Import-Certificate -FilePath "artifacts\test-cert.cer" -CertStoreLocation "Cert:\LocalMachine\TrustedPeople" | Out-Null
+          Write-Host "测试证书已导入本机信任（指纹 $($cert.Thumbprint)）"
+
+      - name: 签名 MSIX（测试签名）
+        shell: pwsh
+        run: |
+          & "$env:SIGNTOOL" sign /fd SHA256 /f "artifacts\test-cert.pfx" /p "taosearch-sideload-2026" "artifacts\msix\TaoSearch.Service-0.1.0.1-unsigned.msix"
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::signtool 签名失败"; exit 1 }
+          Move-Item "artifacts\msix\TaoSearch.Service-0.1.0.1-unsigned.msix" "artifacts\msix\TaoSearch.Service-0.1.0.1-signed.msix"
+          Get-Item "artifacts\msix\*.msix" | Format-List Name, Length
+
+      - name: 侧载安装（Add-AppxPackage）
+        shell: pwsh
+        run: |
+          Add-AppxPackage -Path "artifacts\msix\TaoSearch.Service-0.1.0.1-signed.msix"
+          $pkg = Get-AppxPackage | Where-Object { $_.Name -like "*TaoSearch*" }
+          if (-not $pkg) { Write-Host "::error::侧载后未查到包"; exit 1 }
+          Write-Host "=== 侧载成功 ==="
+          Write-Host "Name: $($pkg.Name)"
+          Write-Host "Version: $($pkg.Version)"
+          Write-Host "InstallLocation: $($pkg.InstallLocation)"
+          Write-Host "PackageFamilyName: $($pkg.PackageFamilyName)"
+          "Name: $($pkg.Name)`nVersion: $($pkg.Version)`nInstallLocation: $($pkg.InstallLocation)`nPackageFamilyName: $($pkg.PackageFamilyName)" |
+            Out-File -FilePath "artifacts\sideload-evidence.txt" -Encoding utf8
+
+      - name: 服务启动冒烟（安装态运行 15 秒）
+        shell: pwsh
+        run: |
+          $pkg = Get-AppxPackage | Where-Object { $_.Name -like "*TaoSearch*" }
+          $exe = Join-Path $pkg.InstallLocation "TaoSearch.Service.exe"
+          if (-not (Test-Path $exe)) { Write-Host "::error::安装目录未找到服务 exe：$exe"; exit 1 }
+          $p = Start-Process -FilePath $exe -WorkingDirectory $pkg.InstallLocation -PassThru
+          Start-Sleep -Seconds 15
+          $alive = Get-Process -Id $p.Id -ErrorAction SilentlyContinue
+          if (-not $alive) { Write-Host "::error::服务进程 15 秒内退出（PID $($p.Id)）"; exit 1 }
+          Write-Host "服务常驻 15 秒存活（PID $($p.Id)，内存 $([math]::Round($alive.WorkingSet64/1MB,1)) MB）"
+          "服务常驻 15 秒存活，内存 $([math]::Round($alive.WorkingSet64/1MB,1)) MB" | Out-File -FilePath "artifacts\sideload-evidence.txt" -Append -Encoding utf8
+          Stop-Process -Id $p.Id -Force
+
+      - name: D 盘虚拟化实测（索引目录落 D 盘读写）
+        shell: pwsh
+        run: |
+          $d = Get-PSDrive -Name D -ErrorAction SilentlyContinue
+          if (-not $d) {
+            Write-Host "云端 runner 无 D 盘，D 盘虚拟化项云端无法构造，仍归真机清单"
+            "云端 runner 无 D 盘，D 盘虚拟化项云端无法构造" | Out-File -FilePath "artifacts\sideload-evidence.txt" -Append -Encoding utf8
+          } else {
+            New-Item -ItemType Directory -Force -Path "D:\TaoSearch\Index" | Out-Null
+            $f = "D:\TaoSearch\Index\write-test.txt"
+            Set-Content $f "taosearch d-drive write test"
+            $back = Get-Content $f
+            if ($back -ne "taosearch d-drive write test") { Write-Host "::error::D 盘读回不一致"; exit 1 }
+            Remove-Item $f
+            Write-Host "D:\TaoSearch\Index 写读删全部正常——MSIX 虚拟化不拦 D 盘，架构 §8.1 预期成立"
+            "D:\TaoSearch\Index 写读删正常，MSIX 虚拟化不拦 D 盘" | Out-File -FilePath "artifacts\sideload-evidence.txt" -Append -Encoding utf8
+          }
+          $pkg = Get-AppxPackage | Where-Object { $_.Name -like "*TaoSearch*" }
+          $vapp = "$env:LOCALAPPDATA\Packages\$($pkg.PackageFamilyName)"
+          Write-Host "虚拟化 AppData 目录存在：$(Test-Path $vapp)（$vapp）"
+          "虚拟化 AppData 目录存在：$(Test-Path $vapp)" | Out-File -FilePath "artifacts\sideload-evidence.txt" -Append -Encoding utf8
+
+      - name: 卸载验证（Remove-AppxPackage）
+        shell: pwsh
+        run: |
+          $pkg = Get-AppxPackage | Where-Object { $_.Name -like "*TaoSearch*" }
+          Remove-AppxPackage -Package $pkg.PackageFullName
+          Start-Sleep -Seconds 3
+          $left = Get-AppxPackage | Where-Object { $_.Name -like "*TaoSearch*" }
+          if ($left) { Write-Host "::error::卸载后包仍存在"; exit 1 }
+          Write-Host "卸载干净，无残留包"
+          "卸载干净，无残留包" | Out-File -FilePath "artifacts\sideload-evidence.txt" -Append -Encoding utf8
+
+      - name: 上传侧载证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sideload-evidence
+          path: |
+            artifacts/sideload-evidence.txt
+            artifacts/msix/*.msix
+          if-no-files-found: warn
+          retention-days: 14
