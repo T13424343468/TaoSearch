@@ -7,7 +7,8 @@ param(
     [string]$OutDir = "out",
     [string]$WixExe = "wix",
     [string]$BalExtPath = "",
-    [string]$UtilExtPath = ""
+    [string]$UtilExtPath = "",
+    [string]$RuntimeDir = ""
 )
 $ScriptVersion = "msi-v1-1121"
 Write-Host "打包脚本版本: $ScriptVersion (若日志无此行, 说明运行的是旧脚本, 请全新目录重试)"
@@ -269,7 +270,8 @@ $bundleWxs = @"
                   InstallArguments="/install /quiet /norestart"
                   RepairArguments="/repair /quiet /norestart"
                   Permanent="yes"
-                  PerMachine="yes">
+                  PerMachine="yes"
+                  Compressed="no">
         <ExitCode Value="1638" Behavior="success" />
         <ExitCode Value="3010" Behavior="success" />
       </ExePackage>
@@ -278,7 +280,8 @@ $bundleWxs = @"
                   DownloadUrl="https://aka.ms/windowsappsdk/1.8/latest/windowsappruntimeinstall-x64.exe"
                   InstallArguments="--quiet"
                   Permanent="yes"
-                  PerMachine="yes">
+                  PerMachine="yes"
+                  Compressed="no">
         <ExitCode Value="-2147009274" Behavior="success" />
         <ExitCode Value="3010" Behavior="success" />
       </ExePackage>
@@ -316,7 +319,9 @@ Write-Host "构建引导安装器..."
 # 扩展引用: 传了全路径就用全路径 (CI 直接解包引用, 不依赖 wix extension add 缓存), 否则按扩展名走缓存
 $balArg = if ($BalExtPath) { $BalExtPath } else { "WixToolset.Bal.wixext" }
 $utilArg = if ($UtilExtPath) { $UtilExtPath } else { "WixToolset.Util.wixext" }
-& $WixExe build $bundlePath -pdbtype none -ext $balArg -ext $utilArg -sw1161 -o $exe 2>&1 | Tee-Object -FilePath (Join-Path $outFull "bundle-build.log")
+$bindArgs = @()
+if ($RuntimeDir) { $bindArgs = @("-b", $RuntimeDir) }
+& $WixExe build $bundlePath -pdbtype none @bindArgs -ext $balArg -ext $utilArg -sw1161 -o $exe 2>&1 | Tee-Object -FilePath (Join-Path $outFull "bundle-build.log")
 if ($LASTEXITCODE -ne 0) {
     Write-Host "打包配置已保存: $bundlePath (排错用, 请把此文件与上方完整报错一并发出)"
     throw "WiX 构建引导安装器失败"

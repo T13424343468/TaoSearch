@@ -51,10 +51,20 @@ jobs:
           if ($count -lt 2) { Write-Host "::error::发布产物异常偏少"; exit 1 }
           Write-Host "发布文件数: $count"
 
+      - name: 预取官方运行时安装包（仅构建期取元数据，Compressed=no 不进安装器）
+        shell: pwsh
+        run: |
+          $rt = Join-Path $env:RUNNER_TEMP "runtimes"
+          New-Item -ItemType Directory -Path $rt -Force | Out-Null
+          Invoke-WebRequest -Uri "https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x64.exe" -OutFile (Join-Path $rt "windowsdesktop-runtime-win-x64.exe")
+          Invoke-WebRequest -Uri "https://aka.ms/windowsappsdk/1.8/latest/windowsappruntimeinstall-x64.exe" -OutFile (Join-Path $rt "windowsappruntimeinstall-x64.exe")
+          Get-ChildItem $rt | ForEach-Object { Write-Host ("  {0}  {1:N1} MB" -f $_.Name, ($_.Length/1MB)) }
+          "RUNTIMEDIR=$rt" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: 构建 MSI + 引导安装器（微信风格 MSI + 运行时联网装）
         shell: pwsh
         run: |
-          ./installer/msi/package.ps1 -PublishDir installer/publish -OutDir artifacts/installer -WixExe "$env:WIXEXE" -BalExtPath "$env:BALEXT" -UtilExtPath "$env:UTILEXT"
+          ./installer/msi/package.ps1 -PublishDir installer/publish -OutDir artifacts/installer -WixExe "$env:WIXEXE" -BalExtPath "$env:BALEXT" -UtilExtPath "$env:UTILEXT" -RuntimeDir "$env:RUNTIMEDIR"
           if ($LASTEXITCODE -ne 0) { Write-Host "::error::安装器构建失败"; exit 1 }
 
       - name: 模拟安装验证（静默装→验文件注册表→启动→卸载干净，四步留痕）
