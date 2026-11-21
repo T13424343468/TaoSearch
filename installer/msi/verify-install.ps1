@@ -33,9 +33,24 @@ Log "STEP2 验证文件与注册表"
 foreach ($probe in @("C:\Program Files\TaoSearch", "D:\Program Files\TaoSearch")) {
     Log ("STEP2 探测 {0}: {1}" -f $probe, (Test-Path (Join-Path $probe $exeName)))
 }
+# 诊断留痕: 枚举各 Program Files 下 TaoSearch 相关目录与嵌套内容, 定位文件实际去向
+foreach ($root in @("C:\Program Files", "C:\Program Files (x86)", "D:\Program Files")) {
+    $dirs = Get-ChildItem $root -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Tao*" }
+    foreach ($d in $dirs) {
+        Log ("STEP2 发现目录: " + $d.FullName)
+        Get-ChildItem $d.FullName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 15 | ForEach-Object { Log ("  - " + $_.FullName) }
+    }
+}
 if (Test-Path $burnLog) {
     $varLines = Select-String -Path $burnLog -Pattern "InstallFolder" -ErrorAction SilentlyContinue | Select-Object -First 6
     foreach ($v in $varLines) { Log ("STEP2 Burn日志: " + $v.Line.Trim()) }
+    # 诊断留痕: 打印 MSI 执行段全文 (从首个 Applying execute package 到日志末尾), 看 MSI 退出码与错误
+    $allLines = Get-Content $burnLog
+    $applyIdx = ($allLines | Select-String -Pattern "Applying execute package" | Select-Object -First 1).LineNumber
+    if ($applyIdx) {
+        Log "STEP2 Burn日志 MSI执行段:"
+        $allLines[($applyIdx - 1)..($allLines.Count - 1)] | Select-Object -First 120 | ForEach-Object { Log ("  | " + $_.Trim()) }
+    }
 } else {
     Log "STEP2 Burn日志不存在"
 }
