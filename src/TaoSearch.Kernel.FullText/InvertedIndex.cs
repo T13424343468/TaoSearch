@@ -7,7 +7,7 @@ namespace TaoSearch.Kernel.FullText;
 /// 词 → 文档集合；文档 → 词频与位置（供相关度打分与命中段落回读）。
 /// 生产版按段（segment）落盘压缩，此版为正确性基线，接口保持不变。
 /// </summary>
-public sealed class InvertedIndex
+public sealed partial class InvertedIndex
 {
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<long, Posting>> _postings = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<long, DocMeta> _docs = new();
