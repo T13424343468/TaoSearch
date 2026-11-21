@@ -108,3 +108,11 @@ jobs:
             artifacts/pack-baseline.txt
           if-no-files-found: error
           retention-days: 14
+
+      - name: 上传便携发布产物（备选侧载/绿色版来源）
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-portable
+          path: installer/publish/
+          if-no-files-found: error
+          retention-days: 14
