@@ -542,3 +542,105 @@ jobs:
             Write-Host "变体N: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
             Stop-Process -Name "TaoSearch.App" -Force -ErrorAction SilentlyContinue
           } else { try { Write-Host ("变体N: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体N: 进程已退出" } }
+      - name: 变体O 空白+zh-CN+NavigationView
+        shell: pwsh
+        run: |
+          $dir = "blank-o"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          Copy-Item blank-app/App.xaml "$dir/App.xaml"
+          $cs = @'
+          using Microsoft.UI.Xaml;
+          using Microsoft.UI.Xaml.Controls;
+
+          namespace Blank;
+
+          public partial class App : Application
+          {
+              public App() { InitializeComponent(); }
+              protected override void OnLaunched(LaunchActivatedEventArgs args)
+              {
+                  var w = new Window();
+                  w.Title = "BlankTest";
+                  var nav = new NavigationView();
+                  nav.PaneDisplayMode = NavigationViewPaneDisplayMode.Top;
+                  var item1 = new NavigationViewItem { Content = "搜索", Tag = "main", IsSelected = true };
+                  var item2 = new NavigationViewItem { Content = "设置", Tag = "settings" };
+                  nav.MenuItems.Add(item1);
+                  nav.MenuItems.Add(item2);
+                  w.Content = nav;
+                  w.Activate();
+              }
+          }
+          '@
+          [System.IO.File]::WriteAllText("$dir/App.xaml.cs", $cs, (New-Object System.Text.UTF8Encoding($false)))
+          $proj = ([System.IO.File]::ReadAllText("blank-app/template.csproj.txt") -f "<DefaultLanguage>zh-CN</DefaultLanguage>", "")
+          [System.IO.File]::WriteAllText("$dir/Blank.csproj", $proj, (New-Object System.Text.UTF8Encoding($false)))
+          dotnet publish "$dir/Blank.csproj" -c Release -r win-x64 --self-contained false -o blank-o-out --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体O发布失败"; exit 1 }
+          $p = Start-Process -FilePath "blank-o-out/Blank.exe" -WorkingDirectory "blank-o-out" -PassThru
+          Start-Sleep -Seconds 10
+          $alive = Get-Process -Name "Blank" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体O: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "Blank" -Force -ErrorAction SilentlyContinue
+          } else { try { Write-Host ("变体O: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体O: 进程已退出" } }
+
+      - name: 变体P 空白+默认语言+NavigationView
+        shell: pwsh
+        run: |
+          $dir = "blank-p"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          Copy-Item blank-app/App.xaml "$dir/App.xaml"
+          $cs = @'
+          using Microsoft.UI.Xaml;
+          using Microsoft.UI.Xaml.Controls;
+
+          namespace Blank;
+
+          public partial class App : Application
+          {
+              public App() { InitializeComponent(); }
+              protected override void OnLaunched(LaunchActivatedEventArgs args)
+              {
+                  var w = new Window();
+                  w.Title = "BlankTest";
+                  var nav = new NavigationView();
+                  nav.PaneDisplayMode = NavigationViewPaneDisplayMode.Top;
+                  var item1 = new NavigationViewItem { Content = "搜索", Tag = "main", IsSelected = true };
+                  var item2 = new NavigationViewItem { Content = "设置", Tag = "settings" };
+                  nav.MenuItems.Add(item1);
+                  nav.MenuItems.Add(item2);
+                  w.Content = nav;
+                  w.Activate();
+              }
+          }
+          '@
+          [System.IO.File]::WriteAllText("$dir/App.xaml.cs", $cs, (New-Object System.Text.UTF8Encoding($false)))
+          $proj = ([System.IO.File]::ReadAllText("blank-app/template.csproj.txt") -f "", "")
+          [System.IO.File]::WriteAllText("$dir/Blank.csproj", $proj, (New-Object System.Text.UTF8Encoding($false)))
+          dotnet publish "$dir/Blank.csproj" -c Release -r win-x64 --self-contained false -o blank-p-out --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体P发布失败"; exit 1 }
+          $p = Start-Process -FilePath "blank-p-out/Blank.exe" -WorkingDirectory "blank-p-out" -PassThru
+          Start-Sleep -Seconds 10
+          $alive = Get-Process -Name "Blank" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体P: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "Blank" -Force -ErrorAction SilentlyContinue
+          } else { try { Write-Host ("变体P: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体P: 进程已退出" } }
+
+      - name: 变体Q 真身+zh-CN+NavigationView+NET自包含
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse src real-src-q
+          dotnet publish real-src-q/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained true -o real-q-out --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::变体Q发布失败"; exit 1 }
+          $p = Start-Process -FilePath "real-q-out/TaoSearch.App.exe" -WorkingDirectory "real-q-out" -PassThru
+          Start-Sleep -Seconds 12
+          $alive = Get-Process -Name "TaoSearch.App" -ErrorAction SilentlyContinue
+          if ($alive) {
+            $w = $alive | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            Write-Host "变体Q: 进程存活, 窗口标题='$(if($w){$w.MainWindowTitle}else{''})'"
+            Stop-Process -Name "TaoSearch.App" -Force -ErrorAction SilentlyContinue
+          } else { try { Write-Host ("变体Q: 进程已退出, 退出码=" + $p.ExitCode) } catch { Write-Host "变体Q: 进程已退出" } }
