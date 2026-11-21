@@ -11,5 +11,6 @@
     <ProjectReference Include="..\..\src\TaoSearch.Kernel.Query\TaoSearch.Kernel.Query.csproj" />
     <ProjectReference Include="..\..\src\TaoSearch.Kernel.FullText\TaoSearch.Kernel.FullText.csproj" />
     <ProjectReference Include="..\..\src\TaoSearch.Kernel.FsIndex\TaoSearch.Kernel.FsIndex.csproj" />
+    <ProjectReference Include="..\..\src\TaoSearch.Kernel.Store\TaoSearch.Kernel.Store.csproj" />
   </ItemGroup>
 </Project>

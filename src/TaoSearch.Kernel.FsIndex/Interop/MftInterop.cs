@@ -11,7 +11,7 @@ internal static class MftInterop
 {
     private const string Kernel32 = "kernel32.dll";
 
-    [DllImport(Kernel32, SetLastError = true, CharSet = CharSet.Unicode)]
+    [DllImport(Kernel32, EntryPoint = "CreateFileW", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr CreateFileWRaw(
         string lpFileName,
         uint dwDesiredAccess,

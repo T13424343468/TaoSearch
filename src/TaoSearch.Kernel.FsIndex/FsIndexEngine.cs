@@ -38,7 +38,7 @@ public sealed record FsIndexStatus
 /// </summary>
 public sealed class FsIndexEngine : IDisposable
 {
-    private readonly NameIndex _index = new();
+    private readonly NameIndex _index;
     private readonly MftScanDelegate? _mftScanOverride;
     private readonly FallbackEnumerateDelegate? _fallbackOverride;
     private readonly CancellationTokenSource _cts = new();
@@ -51,10 +51,21 @@ public sealed class FsIndexEngine : IDisposable
     private bool _usedFallback;
     private string? _lastError;
 
-    public FsIndexEngine(MftScanDelegate? mftScanOverride = null, FallbackEnumerateDelegate? fallbackOverride = null)
+    /// <summary>事件日志写入点（M3 持久化）：先写后应用，强杀后重放不丢事件；恢复重放路径不挂 sink。</summary>
+    public IJournalSink? JournalSink { get; set; }
+
+    public FsIndexEngine(MftScanDelegate? mftScanOverride = null, FallbackEnumerateDelegate? fallbackOverride = null, IJournalSink? journalSink = null)
     {
+        _index = new NameIndex();
         _mftScanOverride = mftScanOverride;
         _fallbackOverride = fallbackOverride;
+        JournalSink = journalSink;
+    }
+
+    /// <summary>快照恢复专用：以已恢复的索引为底座（重放路径不重复落日志）。</summary>
+    public FsIndexEngine(NameIndex restoredIndex)
+    {
+        _index = restoredIndex;
     }
 
     /// <summary>首建：MFT 全量枚举入索引；失败（权限不足等）降级慢路径。完成后状态 Ready。</summary>
@@ -125,15 +136,27 @@ public sealed class FsIndexEngine : IDisposable
         lock (_gate) _listenerTasks.Add(task);
     }
 
-    /// <summary>USN 事件入索引：删除 → Remove；建/改名/内容变更 → Upsert（重命名同引用号覆盖旧名）。</summary>
+    /// <summary>USN 事件入索引：删除 → Remove；建/改名/内容变更 → Upsert（重命名同引用号覆盖旧名）。
+    /// 挂了日志点则先写 journal 再应用（先写后应用：崩溃后重放幂等，不丢事件）。</summary>
     public void ApplyEvent(FileEvent e)
     {
+        JournalSink?.Write(e);
         if (e.Kind == FileChangeKind.Deleted)
         {
             _index.Remove(e.FileReference);
             return;
         }
         _index.Upsert(e.FileReference, e.ParentReference ?? 0, e.Path, 0, e.UtcTimestamp);
+    }
+
+    /// <summary>索引快照落盘（M3 持久化，格式见 NameIndexSnapshot）。</summary>
+    public void SaveSnapshot(Stream output) => _index.SaveSnapshot(output);
+
+    /// <summary>恢复收尾：补卷前缀并置 Ready（快照+journal 重放完成后调用）。</summary>
+    public void MarkRestored(string volumeRoot)
+    {
+        _volumePrefix = NormalizePrefix(volumeRoot);
+        lock (_gate) _ready = true;
     }
 
     /// <summary>文件名子串搜索，返回（引用号, 完整路径）。慢路径记录名即全路径，MFT 路径补卷前缀。</summary>
