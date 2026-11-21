@@ -6,9 +6,9 @@
     <Project Path="src/TaoSearch.Kernel.Query/TaoSearch.Kernel.Query.csproj" />
     <Project Path="src/TaoSearch.Kernel.Store/TaoSearch.Kernel.Store.csproj" />
     <Project Path="src/TaoSearch.Service/TaoSearch.Service.csproj" />
-    <Project Path="src/TaoSearch.App/TaoSearch.App.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TaoSearch.Kernel.Tests/TaoSearch.Kernel.Tests.csproj" />
+    <Project Path="tests/TaoSearch.Service.Tests/TaoSearch.Service.Tests.csproj" />
   </Folder>
 </Solution>

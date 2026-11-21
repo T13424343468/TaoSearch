@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using TaoSearch.Kernel.Contracts;
@@ -36,9 +37,10 @@ public sealed class SearchEngine : IQueryEngine
         _fullText = fullText;
     }
 
-    public async IAsyncEnumerable<ResultBatch> SearchAsync(QuerySpec spec, CancellationToken ct = default)
+    public async IAsyncEnumerable<ResultBatch> SearchAsync(QuerySpec spec, [EnumeratorCancellation] CancellationToken ct = default)
     {
         ParsedQuery parsed;
+        bool syntaxError = false;
         try
         {
             parsed = QueryParser.Parse(spec.Text);
@@ -46,6 +48,12 @@ public sealed class SearchEngine : IQueryEngine
         catch (QuerySyntaxException)
         {
             // 语法错误：返回空终批（错误通道由服务层以 AckResponse 帧先行告知，见 ServiceHost）
+            syntaxError = true;
+            parsed = new ParsedQuery();
+        }
+
+        if (syntaxError)
+        {
             yield return new ResultBatch { Hits = [], TotalEstimate = 0, IsFinal = true };
             yield break;
         }
@@ -65,6 +73,13 @@ public sealed class SearchEngine : IQueryEngine
             .OrderByDescending(h => h.Score)
             .ThenBy(h => h.Path, StringComparer.Ordinal)
             .ToArray();
+
+        if (ordered.Length == 0)
+        {
+            // 零命中也必须发终帧：客户端按「收到 IsFinal 才收尾」等待，空流会让其挂起
+            yield return new ResultBatch { Hits = [], TotalEstimate = 0, IsFinal = true };
+            yield break;
+        }
 
         int batchSize = Math.Max(1, spec.BatchSize);
         long total = ordered.Length;
@@ -174,11 +189,13 @@ public sealed class SearchEngine : IQueryEngine
             if (!parsed.Extensions.Contains(ext, StringComparer.OrdinalIgnoreCase)) return false;
         }
 
-        if (parsed.MinSize is { } min || parsed.MaxSize is { } max)
+        long? minSize = parsed.MinSize;
+        long? maxSize = parsed.MaxSize;
+        if (minSize is not null || maxSize is not null)
         {
             _fs.TryGetInfo(fileRef, out _, out long size, out _);
-            if (min is { } lo && size < lo) return false;
-            if (max is { } hi && size > hi) return false;
+            if (minSize is { } lo && size < lo) return false;
+            if (maxSize is { } hi && size > hi) return false;
         }
 
         if (parsed.Modified is { } dr)

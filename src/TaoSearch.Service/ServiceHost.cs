@@ -188,7 +188,7 @@ public sealed class ServiceHost
     }
 
     private static T Deserialize<T>(ReadOnlyMemory<byte> payload) where T : class =>
-        JsonSerializer.Deserialize(payload.Span, ServiceJsonContext.Default<T>)
+        JsonSerializer.Deserialize(payload.Span, typeof(T), ServiceJsonContext.Default) as T
         ?? throw new JsonException("payload 为空");
 
     private static ValueTask WriteAckAsync(Func<byte[], CancellationToken, ValueTask> writeFrame,
@@ -198,7 +198,7 @@ public sealed class ServiceHost
     private static async ValueTask WriteJsonAsync<T>(Func<byte[], CancellationToken, ValueTask> writeFrame,
         ushort method, uint seq, T value, CancellationToken ct)
     {
-        byte[] json = JsonSerializer.SerializeToUtf8Bytes(value, ServiceJsonContext.Default<T>);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(value, typeof(T), ServiceJsonContext.Default);
         await writeFrame(FrameWriter.Encode(method, seq, json), ct).ConfigureAwait(false);
     }
 }

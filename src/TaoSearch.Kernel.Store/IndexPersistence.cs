@@ -112,28 +112,34 @@ public static class IndexPersistence
         };
     }
 
-    public static RestoreResult Restore(string snapshotPath, string journalPath, string volumeRoot)
+    /// <param name="engine">可选目标引擎：调用方已装载快照时传入，journal 直接重放到该引擎（服务宿主装配路径）。</param>
+    public static RestoreResult Restore(string snapshotPath, string journalPath, string volumeRoot, FsIndexEngine? engine = null)
     {
         var sw = Stopwatch.StartNew();
         bool usedSnapshot = false;
-        FsIndexEngine engine;
+        FsIndexEngine target;
 
-        if (File.Exists(snapshotPath))
+        if (engine is not null)
+        {
+            target = engine;
+            usedSnapshot = true;
+        }
+        else if (File.Exists(snapshotPath))
         {
             // FileShare.ReadWrite：容忍活跃写者（Windows 下 FileShare.Read 会拒绝并发写句柄）
             using (var fs = new FileStream(snapshotPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
                 var index = NameIndex.LoadSnapshot(fs);
-                engine = new FsIndexEngine(index);
+                target = new FsIndexEngine(index);
                 usedSnapshot = true;
             }
         }
         else
         {
-            engine = new FsIndexEngine();
+            target = new FsIndexEngine();
         }
 
-        engine.MarkRestored(volumeRoot);
+        target.MarkRestored(volumeRoot);
 
         int frames = 0;
         long torn = 0;
@@ -144,7 +150,7 @@ public static class IndexPersistence
             {
                 var replay = JournalWriter.Replay(fs, e =>
                 {
-                    engine.ApplyEvent(new FileEvent
+                    target.ApplyEvent(new FileEvent
                     {
                         Kind = e.IsDelete ? FileChangeKind.Deleted : FileChangeKind.ContentModified,
                         FileReference = e.FileReference,
@@ -161,7 +167,7 @@ public static class IndexPersistence
         sw.Stop();
         return new RestoreResult
         {
-            FileCount = engine.Snapshot().FileCount,
+            FileCount = target.Snapshot().FileCount,
             SnapshotUsed = usedSnapshot,
             JournalFramesApplied = frames,
             JournalTruncatedTailBytes = torn,
