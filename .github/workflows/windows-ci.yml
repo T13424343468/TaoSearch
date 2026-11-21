@@ -28,11 +28,28 @@ jobs:
       - name: 编译壳层（WinUI3，Windows 专属目标框架；独立还原避免 slnx 遗漏）
         run: dotnet build src/TaoSearch.App/TaoSearch.App.csproj -c Release --nologo
 
-      - name: 壳层编译诊断（失败时导出 XamlCompiler 产物）
+      - name: 壳层编译诊断（失败时手动重跑 XamlCompiler 抓真实报错）
         if: failure()
+        shell: pwsh
         run: |
+          $objdir = "src/TaoSearch.App/obj/Release/net10.0-windows10.0.26100.0"
+          if (Test-Path "$objdir/input.json") {
+            Write-Host "input.json bytes: $((Get-Item "$objdir/input.json").Length)"
+          }
+          $xc = Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.windowsappsdk" -Recurse -Filter XamlCompiler.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($xc -and (Test-Path "$objdir/input.json")) {
+            Write-Host "===== 手动重跑 XamlCompiler.exe ====="
+            Write-Host "exe: $($xc.FullName)"
+            Push-Location src/TaoSearch.App
+            & $xc.FullName "obj/Release/net10.0-windows10.0.26100.0/input.json" "obj/Release/net10.0-windows10.0.26100.0/output-manual.json" 2>&1 | ForEach-Object { Write-Host $_ }
+            Write-Host "exit code: $LASTEXITCODE"
+            Pop-Location
+            if (Test-Path "$objdir/output-manual.json") { Write-Host "===== output-manual.json ====="; Get-Content "$objdir/output-manual.json" -Raw }
+          } else {
+            Write-Host "XamlCompiler.exe 或 input.json 未找到，跳过手动重跑"
+          }
           if (Test-Path src/TaoSearch.App/obj) {
-            Get-ChildItem -Recurse src/TaoSearch.App/obj -Filter *.json | ForEach-Object { "=== $($_.FullName) ==="; Get-Content $_.FullName -Raw }
+            Get-ChildItem -Recurse src/TaoSearch.App/obj -Include output.json,XamlSaveStateFile.xml -ErrorAction SilentlyContinue | ForEach-Object { "=== $($_.FullName) ==="; Get-Content $_.FullName -Raw }
           }
 
       - name: 单元测试（Windows 真环境跑 MFT/USN 互操作编译产物）
