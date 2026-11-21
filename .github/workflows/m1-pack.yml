@@ -88,16 +88,17 @@ jobs:
           $v0 = Join-Path $root "v0"
           New-Item -ItemType Directory -Path $v0 -Force | Out-Null
           Copy-Item src/TaoSearch.App/app.manifest (Join-Path $v0 "app.manifest")
-          @'
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-  </PropertyGroup>
-</Project>
-'@ | Out-File (Join-Path $v0 "ManifestProbe.csproj") -Encoding utf8
+          $csprojLines = @(
+            '<Project Sdk="Microsoft.NET.Sdk">'
+            '  <PropertyGroup>'
+            '    <OutputType>Exe</OutputType>'
+            '    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>'
+            '    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>'
+            '    <ApplicationManifest>app.manifest</ApplicationManifest>'
+            '  </PropertyGroup>'
+            '</Project>'
+          )
+          [System.IO.File]::WriteAllLines((Join-Path $v0 "ManifestProbe.csproj"), $csprojLines)
           'System.Console.WriteLine("probe ok");' | Out-File (Join-Path $v0 "Program.cs") -Encoding utf8
           dotnet publish (Join-Path $v0 "ManifestProbe.csproj") -c Release -r win-x64 --self-contained false -o "$root/v0-out" --nologo
           ./installer/msi/diag-app.ps1 -ExePath "$root/v0-out/ManifestProbe.exe" -Start
@@ -108,29 +109,30 @@ jobs:
 
           # V3: VS 标准风格清单 (trustInfo + compatibility + windowsSettings)
           $v3m = Join-Path $root "vs-style.manifest"
-          @'
-<?xml version="1.0" encoding="utf-8"?>
-<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="1.0.0.0" name="TaoSearch.App"/>
-  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
-    <security>
-      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
-      </requestedPrivileges>
-    </security>
-  </trustInfo>
-  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
-    <application>
-      <supportedOS Guid="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
-    </application>
-  </compatibility>
-  <application xmlns="urn:schemas-microsoft-com:asm.v3">
-    <windowsSettings>
-      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
-    </windowsSettings>
-  </application>
-</assembly>
-'@ | Out-File $v3m -Encoding utf8
+          $v3Lines = @(
+            '<?xml version="1.0" encoding="utf-8"?>'
+            '<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">'
+            '  <assemblyIdentity version="1.0.0.0" name="TaoSearch.App"/>'
+            '  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">'
+            '    <security>'
+            '      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">'
+            '        <requestedExecutionLevel level="asInvoker" uiAccess="false" />'
+            '      </requestedPrivileges>'
+            '    </security>'
+            '  </trustInfo>'
+            '  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">'
+            '    <application>'
+            '      <supportedOS Guid="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />'
+            '    </application>'
+            '  </compatibility>'
+            '  <application xmlns="urn:schemas-microsoft-com:asm.v3">'
+            '    <windowsSettings>'
+            '      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>'
+            '    </windowsSettings>'
+            '  </application>'
+            '</assembly>'
+          )
+          [System.IO.File]::WriteAllLines($v3m, $v3Lines)
           dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o "$root/v3-out" -p:ApplicationManifest=$v3m --nologo
           ./installer/msi/diag-app.ps1 -ExePath "$root/v3-out/TaoSearch.App.exe" -Start
 
