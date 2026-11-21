@@ -1,8 +1,20 @@
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace TaoSearch.Service;
+
+/// <summary>
+/// AOT 源生成序列化上下文（M1 NativeAOT 实测修复）：反射式 JsonSerializer 与裁剪/AOT
+/// 不兼容（IL2026/IL3050，云端 run 44859414687 实测暴露），改源生成零第三方依赖。
+/// </summary>
+[JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(AckFrame))]
+internal sealed partial class ServiceJsonContext : JsonSerializerContext;
+
+/// <summary>管道 ACK 帧（原匿名对象载荷，字段不变）。</summary>
+internal sealed record AckFrame(bool Ok, ushort Method, ushort Version, uint Seq);
 
 /// <summary>
 /// 服务宿主骨架（架构 §3/§7）：命名管道 IPC 服务端 + 单实例互斥体。
@@ -55,7 +67,8 @@ public sealed class PipeServer(string pipeName)
                 uint seq = BitConverter.ToUInt32(header, 8);
 
                 // 载荷按方法号分发（M4 接 Contracts 方法族；当前回 ACK）
-                var ack = JsonSerializer.SerializeToUtf8Bytes(new { ok = true, method, version, seq });
+                var ack = JsonSerializer.SerializeToUtf8Bytes(
+                    new AckFrame(true, method, version, seq), ServiceJsonContext.Default.AckFrame);
                 await pipe.WriteAsync(ack, ct);
                 await pipe.FlushAsync(ct);
             }
