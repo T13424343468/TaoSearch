@@ -49,7 +49,7 @@ jobs:
           dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained true -o artifacts\selfcontained --nologo
           $fd = (Get-ChildItem artifacts\msix\publish -Recurse | Measure-Object Length -Sum).Sum
           $sc = (Get-ChildItem artifacts\selfcontained -Recurse | Measure-Object Length -Sum).Sum
-          $msix = (Get-Item artifacts\msix\TaoSearch.Service-0.1.0.1-unsigned.msix).Length
+          $msix = (Get-ChildItem artifacts\msix\*unsigned.msix | Select-Object -First 1).Length
           "框架依赖 publish: {0:N1} MB" -f ($fd/1MB) | Tee-Object -FilePath artifacts\pack-baseline.txt
           "自包含 publish:   {0:N1} MB" -f ($sc/1MB) | Tee-Object -FilePath artifacts\pack-baseline.txt -Append
           "未签名 MSIX:      {0:N1} MB" -f ($msix/1MB) | Tee-Object -FilePath artifacts\pack-baseline.txt -Append
