@@ -1,0 +1,92 @@
+name: gate7-chaos
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tests/Gate7Chaos/**'
+      - '.github/workflows/gate7-chaos.yml'
+
+jobs:
+  gate7:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 发布服务 + 编译关7装置与关3语料器
+        shell: pwsh
+        run: |
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          dotnet build tests/Gate7Chaos/Gate7Chaos.csproj -c Release --nologo
+          dotnet build tests/Gate3Harness/Gate3Harness.csproj -c Release --nologo
+
+      - name: 关7 健壮性注入（同 step：损坏注入 → 启动 → 验证 → 强杀，五连发）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          dotnet tests/Gate3Harness/bin/Release/net10.0/Gate3Harness.dll generate "$PWD/qa-corpus"
+          $env:TAOSEARCH_DATA = "$PWD/qadata"
+          $harness = "dotnet tests/Gate7Chaos/bin/Release/net10.0/Gate7Chaos.dll"
+
+          function Start-Svc {
+            Start-Process -FilePath "$PWD/publish/TaoSearch.Service.exe" -ArgumentList "`"$PWD/qa-corpus`"" `
+              -WorkingDirectory "$PWD/publish" -WindowStyle Hidden `
+              -RedirectStandardOutput "$PWD/service.log" -RedirectStandardError "$PWD/service.err.log"
+            Start-Sleep -Seconds 2
+          }
+          function Stop-Svc {
+            Get-Process TaoSearch.Service -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Seconds 1
+          }
+          function Test-Phase([string]$label, [int]$expectFiles) {
+            Start-Svc
+            dotnet tests/Gate7Chaos/bin/Release/net10.0/Gate7Chaos.dll verify --label $label --expect-files $expectFiles
+            if ($LASTEXITCODE -ne 0) { Write-Host "--- service.log ($label) ---"; Get-Content "$PWD/service.log" -ErrorAction SilentlyContinue; Write-Host "--- service.err.log ---"; Get-Content "$PWD/service.err.log" -ErrorAction SilentlyContinue }
+            Stop-Svc
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+
+          # 阶段0：基线（首建）
+          Test-Phase "基线首建" 253
+
+          # 阶段1：快照随机垃圾字节（模拟磁盘损坏/升级残留）
+          $snap = "$PWD/qadata/fs.snap"
+          if (Test-Path $snap) {
+            $bytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(8192)
+            [System.IO.File]::WriteAllBytes($snap, $bytes)
+            Test-Phase "快照随机损坏" 253
+          } else { Write-Host "::error::fs.snap 不存在——服务首建后未落快照，持久化链路存疑"; Get-ChildItem "$PWD/qadata"; exit 1 }
+
+          # 阶段2：快照截断一半
+          $all = [System.IO.File]::ReadAllBytes($snap)
+          [System.IO.File]::WriteAllBytes($snap, $all[0..([int]($all.Length/2)-1)])
+          Test-Phase "快照截断一半" 253
+
+          # 阶段3：journal 垃圾字节
+          $jrnl = "$PWD/qadata/fs.journal"
+          if (Test-Path $jrnl) {
+            $jb = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(4096)
+            [System.IO.File]::WriteAllBytes($jrnl, $jb)
+            Test-Phase "journal垃圾" 253
+          } else { Write-Host "::warning::fs.journal 不存在，跳过 journal 注入" }
+
+          # 阶段4：快照只读（写入路径受阻）
+          if (Test-Path $snap) { (Get-Item $snap).IsReadOnly = $true }
+          Test-Phase "快照只读" 253
+          if (Test-Path $snap) { (Get-Item $snap).IsReadOnly = $false }
+
+          # 阶段5：语料文件消失（删 100 个 content 文件后重建索引口径）
+          Get-ChildItem "$PWD/qa-corpus" -Recurse -Filter "content-*.txt" | Select-Object -First 100 | Remove-Item -Force
+          Test-Phase "语料消失100" 153
+
+          # 终验：干净重启基线
+          Test-Phase "终验基线" 153
+          Write-Host "=== 关7 五连发全部通过 ==="
