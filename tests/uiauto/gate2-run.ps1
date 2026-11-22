@@ -47,7 +47,12 @@ function Click-UiaElement([System.Windows.Automation.AutomationElement]$el) {
 [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
 [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);'
         }
-        $pt = $el.GetClickablePoint()
+        try { $pt = $el.GetClickablePoint() } catch {
+            # 视口边缘元素无可点坐标：退回包围矩形中心真实点击
+            $rc = $el.Current.BoundingRectangle
+            if ($rc.IsEmpty) { throw }
+            $pt = New-Object System.Windows.Point(($rc.X + $rc.Width / 2), ($rc.Y + $rc.Height / 2))
+        }
         [G2Click.Native]::SetCursorPos([int]$pt.X, [int]$pt.Y) | Out-Null
         Start-Sleep -Milliseconds 200
         [G2Click.Native]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
@@ -77,14 +82,16 @@ function Scroll-WheelOver([System.Windows.Automation.AutomationElement]$el, [int
 }
 
 function Close-UiaDialog([System.Windows.Automation.AutomationElement]$w) {
-    # 关闭可能打开的 ContentDialog（关闭按钮文案「好」），模拟真实用户先关弹窗再操作
+    # 关闭可能打开的 ContentDialog（按钮文案：好 / 知道了 / 关闭），模拟真实用户先关弹窗再操作
     try {
-        $okBtn = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-            (New-Object System.Windows.Automation.PropertyCondition(
-                [System.Windows.Automation.AutomationElement]::NameProperty, '好')))
-        if ($okBtn) {
-            try { ($okBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() } catch { }
-            Start-Sleep -Milliseconds 800
+        foreach ($label in @('好', '知道了', '关闭')) {
+            $okBtn = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty, $label)))
+            if ($okBtn) {
+                try { ($okBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() } catch { }
+                Start-Sleep -Milliseconds 800
+            }
         }
     } catch { }
 }
@@ -584,13 +591,15 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
                 (New-Object System.Windows.Automation.PropertyCondition(
                     [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
                     [System.Windows.Automation.ControlType]::RadioButton)))
+            # 模态对话框（如「快捷键未生效」）遮罩会让 Select 报 0x800710DD（v4d 截图实证）：先关掉
+            Close-UiaDialog $win
             $mobai = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $rbCond)
             if (-not $mobai) { Scroll-WheelOver $win 6 | Out-Null; Start-Sleep -Milliseconds 500; $mobai = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $rbCond) }
             if ($mobai) {
                 # 主题卡在首屏外（G2-27 截图实证）：先滚动入视再选
                 try { ($mobai.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)).ScrollIntoView(); Start-Sleep -Milliseconds 800 } catch { }
                 try { ($mobai.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select() }
-                catch { if (-not (Click-UiaElement $mobai)) { throw "墨白单选不可选: $_" } }
+                catch { Close-UiaDialog $win; if (-not (Click-UiaElement $mobai)) { throw "墨白单选不可选: $_" } }
                 Start-Sleep -Seconds 2
                 Screenshot 'G2-27-theme-dark'
                 Scroll-WheelOver $win 3 | Out-Null
