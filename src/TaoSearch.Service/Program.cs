@@ -87,7 +87,8 @@ public static class ServiceHostFactory
 
         // 全文索引：快照+journal 恢复优先，缺失从空索引起（内容由事件管线增量补齐）
         var fullText = new InvertedIndex();
-        if (File.Exists(ftSnapshot))
+        bool fullTextFresh = !File.Exists(ftSnapshot);
+        if (!fullTextFresh)
         {
             using var journalStream = new FileStream(ftJournal, FileMode.OpenOrCreate, FileAccess.Read, FileShare.Read);
             var (index, frames, _) = FullTextPersistence.Restore(ftSnapshot, journalStream);
@@ -98,6 +99,22 @@ public static class ServiceHostFactory
         var content = new ContentIndexer(fullText);
 
         var host = new ServiceHost(fs, fullText, content, volumeRoot);
+
+        // 存量内容补齐（关3实弹实证缺陷）：内容管线只吃事件流，USN 不重放历史，
+        // 全文快照缺失（首建）时存量文件内容永远不进倒排 → 全文搜索对存量恒空。
+        // 快照缺失时把文件名索引存量全集入队内容管线；有快照则增量由事件泵承担，不重清。
+        if (fullTextFresh)
+        {
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    content.Rebuild(fs.EnumerateLivePaths(), CancellationToken.None);
+                    Console.WriteLine("内容索引存量补齐：已全量入队内容管线");
+                }
+                catch (Exception ex) { Console.WriteLine($"内容索引存量补齐失败: {ex.Message}"); }
+            });
+        }
 
         // 事件泵：Windows 挂 USN 监听（真实源）；非 Windows（沙箱/测试）由注入源驱动
         if (OperatingSystem.IsWindows())
