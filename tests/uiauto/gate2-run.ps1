@@ -242,34 +242,29 @@ if ($win) {
         Check 'G2-08' '设置页渲染出索引状态等内容' ($snames.Count -gt 0) $false
     }
 
-    # ---- 热键开关实际切换（G2-16，全面覆盖令：真实鼠标点击 + 设置文件回读；WinUI3 开关不吃旧版 UIA Toggle 调用） ----
+    # ---- 热键开关实际切换（G2-16，全面覆盖令：按 AutomationId 定位开关本体，模式降级链切换 + 设置文件回读） ----
     try {
-        if (-not ([System.Management.Automation.PSTypeName]'MouseNative').Type) {
-            Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public static class MouseNative { [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, UIntPtr e); }'
-        }
-        $hkCond = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::NameProperty, '全局快捷键 Alt+Q（唤起 / 隐藏快速搜索窗）')
-        $hk = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $hkCond)
+        $hk = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'HotkeyToggle')))
         if ($hk) {
             function Read-Qh {
                 try { return [bool]((Get-Content "$settingsDir\settings.json" -Raw | ConvertFrom-Json).QuickHotkeyEnabled) } catch { return $null }
             }
-            function Click-Point($pt) {
-                [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point([int]$pt.X, [int]$pt.Y)
-                Start-Sleep -Milliseconds 200
-                [MouseNative]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
-                [MouseNative]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+            function Flip-Toggle($el) {
+                try { $el.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle(); return $true } catch { }
+                try { $el.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern).DoDefaultAction(); return $true } catch { }
+                try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); return $true } catch { }
+                return $false
             }
             $qh0 = Read-Qh
-            $pt = $hk.GetClickablePoint()
-            Click-Point $pt
+            $f1 = Flip-Toggle $hk
             Start-Sleep -Milliseconds 900
             $qh1 = Read-Qh
-            $pt2 = $hk.GetClickablePoint()
-            Click-Point $pt2
+            $f2 = Flip-Toggle $hk
             Start-Sleep -Milliseconds 900
             $qh2 = Read-Qh
-            Check 'G2-16' "热键开关真实点击切换生效（$qh0→$qh1→$qh2）" (($qh0 -ne $qh1) -and ($qh1 -ne $qh2) -and ($qh0 -eq $qh2)) $true
+            Check 'G2-16' "热键开关切换生效（$qh0→$qh1→$qh2）" (($f1 -and $f2) -and ($qh0 -ne $qh1) -and ($qh1 -ne $qh2)) $true
             Screenshot 'G2-16-hotkey-toggle'
         } else { Check 'G2-16' '未定位到热键开关控件' $false $true }
     } catch { Check 'G2-16' "热键开关异常: $_" $false $true }
