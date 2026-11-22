@@ -82,7 +82,7 @@ public sealed class GlobalHotkeyService : IDisposable
     private static extern bool TranslateMessage(ref MSG lpMsg);
     [DllImport("user32.dll")]
     private static extern IntPtr DispatchMessage(ref MSG lpMsg);
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport("user32.dll", EntryPoint = "CreateWindowExW", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr CreateWindowExW(uint exStyle, string className, string windowName, uint style, int x, int y, int w, int h, IntPtr parent, IntPtr menu, IntPtr inst, IntPtr param);
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool DestroyWindow(IntPtr hWnd);

@@ -555,6 +555,8 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
                     [System.Windows.Automation.ControlType]::RadioButton)))
             $mobai = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $rbCond)
             if ($mobai) {
+                # 主题卡在首屏外（G2-27 截图实证）：先滚动入视再选
+                try { ($mobai.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)).ScrollIntoView(); Start-Sleep -Milliseconds 800 } catch { }
                 try { ($mobai.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select() }
                 catch { if (-not (Click-UiaElement $mobai)) { throw "墨白单选不可选: $_" } }
                 Start-Sleep -Seconds 2
@@ -567,6 +569,7 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
                         [System.Windows.Automation.ControlType]::RadioButton)))
                 $shuimo = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $rbCond2)
                 if ($shuimo) {
+                    try { ($shuimo.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)).ScrollIntoView(); Start-Sleep -Milliseconds 800 } catch { }
                     try { ($shuimo.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select() }
                     catch { if (-not (Click-UiaElement $shuimo)) { throw "水墨单选不可选: $_" } }
                     Start-Sleep -Seconds 1
@@ -680,11 +683,16 @@ try {
                 Start-Sleep -Seconds 1
             }
             foreach ($i in 1..10) {
-                $ed2 = $win2.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                $eds = $win2.FindAll([System.Windows.Automation.TreeScope]::Descendants,
                     (New-Object System.Windows.Automation.PropertyCondition(
                         [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
                         [System.Windows.Automation.ControlType]::Edit)))
-                if ($ed2) {
+                if ($eds.Count -gt 0) {
+                    $dump = @($eds | ForEach-Object {
+                        $vp = $_.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+                        "{0}={1}" -f $_.Current.AutomationId, $vp.Value })
+                    Log ("  转发回读 第{0}轮 Edits: {1}" -f $i, ($dump -join ' | '))
+                    $ed2 = $eds[0]
                     $val2 = ($ed2.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).Value
                     if ($val2 -eq 'readme') { break }
                 } else {
@@ -692,6 +700,7 @@ try {
                 }
                 Start-Sleep -Seconds 1
             }
+            Log ("  转发回读: launch-args 文件存在=" + (Test-Path "$env:TEMP\TaoSearch\launch-args.json"))
             $fwd = ($val2 -eq 'readme')
             Screenshot 'G2-26-forward-readback'
         }
