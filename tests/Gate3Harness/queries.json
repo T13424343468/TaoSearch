@@ -1,0 +1,13 @@
+[
+  { "Text": "发票", "Expect": 1, "ExpectValue": "发票" },
+  { "Text": "report", "Expect": 1, "ExpectValue": "report" },
+  { "Text": "会议纪要", "Expect": 1, "ExpectValue": "会议纪要" },
+  { "Text": "readme", "Expect": 1, "ExpectValue": "readme" },
+  { "Text": "报价单", "Expect": 1, "ExpectValue": "报价单" },
+  { "Text": "埋点文件", "Expect": 1, "ExpectValue": "埋点" },
+  { "Text": "暗号词0042", "Expect": 3, "ExpectValue": "暗号词0042" },
+  { "Text": "暗号词0123", "Expect": 2, "ExpectValue": "content-123" },
+  { "Text": "搜索引擎", "Expect": 3, "ExpectValue": "搜索引擎" },
+  { "Text": "content-0", "MinHits": 10 },
+  { "Text": "不存在的暗号词ZZZZ", "MustNotHit": true }
+]

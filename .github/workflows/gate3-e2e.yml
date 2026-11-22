@@ -1,0 +1,55 @@
+name: gate3-e2e
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tests/Gate3Harness/**'
+      - '.github/workflows/gate3-e2e.yml'
+
+jobs:
+  gate3:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 发布服务（框架依赖 + WinAppSDK 自包含）
+        shell: pwsh
+        run: |
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          dotnet build tests/Gate3Harness/Gate3Harness.csproj -c Release --nologo
+
+      - name: 生成确定性语料（247 文件：中英文文件名/嵌套目录/内容暗号词/干扰集）
+        shell: pwsh
+        run: dotnet tests/Gate3Harness/bin/Release/net10.0/Gate3Harness.dll -- generate "$PWD/qa-corpus"
+
+      - name: 启动服务（指向语料卷）
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "$PWD/publish/TaoSearch.Service.exe" -ArgumentList "`"$PWD/qa-corpus`"" `
+            -WorkingDirectory "$PWD/publish" -WindowStyle Hidden `
+            -RedirectStandardOutput "$PWD/service.log" -RedirectStandardError "$PWD/service.err.log"
+
+      - name: 关3 实效实弹（11 查询断言命中/预览/负样本 + 延迟 P50/P95）
+        shell: pwsh
+        run: dotnet tests/Gate3Harness/bin/Release/net10.0/Gate3Harness.dll -- run --queries tests/Gate3Harness/queries.json --report "$PWD/gate3-results.txt" --timeout-sec 240
+
+      - name: 上传关3证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate3-evidence
+          path: |
+            gate3-results.txt
+            service.log
+            service.err.log
+          if-no-files-found: warn
+          retention-days: 14
