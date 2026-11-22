@@ -1,0 +1,59 @@
+name: gate6-stable
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tests/Gate6Stable/**'
+      - '.github/workflows/gate6-stable.yml'
+
+jobs:
+  gate6:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 发布服务 + 编译关6装置与关3语料器
+        shell: pwsh
+        run: |
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          dotnet build tests/Gate6Stable/Gate6Stable.csproj -c Release --nologo
+          dotnet build tests/Gate3Harness/Gate3Harness.csproj -c Release --nologo
+
+      - name: 关6 稳定长跑（同 step：冷启动 → 15 分钟负载 → 内存 → 索引健康）
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "qa-corpus")) { dotnet tests/Gate3Harness/bin/Release/net10.0/Gate3Harness.dll generate "$PWD/qa-corpus" }
+          $t0 = Get-Date
+          Start-Process -FilePath "$PWD/publish/TaoSearch.Service.exe" -ArgumentList "`"$PWD/qa-corpus`"" `
+            -WorkingDirectory "$PWD/publish" -WindowStyle Hidden `
+            -RedirectStandardOutput "$PWD/service.log" -RedirectStandardError "$PWD/service.err.log"
+          Start-Sleep -Seconds 2
+          $svc = Get-Process TaoSearch.Service -ErrorAction SilentlyContinue
+          if (-not $svc) { Write-Host "::error::服务进程未存活"; Get-Content "$PWD/service.log" -ErrorAction SilentlyContinue; Get-Content "$PWD/service.err.log" -ErrorAction SilentlyContinue; exit 1 }
+          dotnet tests/Gate6Stable/bin/Release/net10.0/Gate6Stable.dll run --report "$PWD/gate6-results.txt" --duration-sec 900 --qps 2
+          $rc = $LASTEXITCODE
+          Write-Host "--- gate6-results.txt ---"; Get-Content "$PWD/gate6-results.txt" -ErrorAction SilentlyContinue
+          Write-Host "--- service.log ---"; Get-Content "$PWD/service.log" -ErrorAction SilentlyContinue
+          Write-Host "--- service.err.log ---"; Get-Content "$PWD/service.err.log" -ErrorAction SilentlyContinue
+          exit $rc
+
+      - name: 上传关6证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate6-evidence
+          path: |
+            gate6-results.txt
+            service.log
+            service.err.log
+          if-no-files-found: warn
+          retention-days: 14
