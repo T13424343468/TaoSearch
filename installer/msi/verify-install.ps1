@@ -101,8 +101,9 @@ if (-not $winProc) { Start-Sleep -Seconds 5; $winProc = Get-Process -Name "TaoSe
 Assert ($null -ne $winProc) "主窗口已创建（窗口句柄非零）"
 $winTitle = [string]$winProc.MainWindowTitle
 Log ("STEP3 主窗口标题: " + $winTitle)
-# 断言收紧: 标题必须精确等于应用窗口标题; 运行时缺失时错误弹框标题含 exe 名, 不得假绿 (0.1.0.6 教训)
-Assert ($winTitle -eq "TaoSearch") "主窗口标题精确匹配（排除运行时错误弹框）"
+# 断言收紧: 标题必须精确等于应用窗口标题(主窗或首次使用引导窗, 关7持久化修复后全新安装正确进入引导页);
+# 运行时缺失时错误弹框标题含 exe 名, 不得假绿 (0.1.0.6 教训)
+Assert ($winTitle -eq "TaoSearch" -or $winTitle -eq "TaoSearch 首次使用引导") "主窗口标题精确匹配（排除运行时错误弹框）"
 # 2) 屏幕截图留证: 全屏截图落盘, 启动失败或窗口空白可肉眼核对
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
