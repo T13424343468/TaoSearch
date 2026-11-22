@@ -264,7 +264,8 @@ if ($win) {
             $f2 = Flip-Toggle $hk
             Start-Sleep -Milliseconds 900
             $qh2 = Read-Qh
-            Check 'G2-16' "热键开关切换生效（$qh0→$qh1→$qh2）" (($f1 -and $f2) -and ($qh0 -ne $qh1) -and ($qh1 -ne $qh2)) $true
+            # 断言以设置文件回读为准（UIA Toggle 方法可能报错但实际已生效，G2-16 第三轮实证）
+            Check 'G2-16' "热键开关切换生效（$qh0→$qh1→$qh2）" (($qh0 -ne $qh1) -and ($qh1 -ne $qh2) -and ($qh0 -eq $qh2)) $true
             Screenshot 'G2-16-hotkey-toggle'
         } else { Check 'G2-16' '未定位到热键开关控件' $false $true }
     } catch { Check 'G2-16' "热键开关异常: $_" $false $true }
