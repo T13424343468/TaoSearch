@@ -98,6 +98,7 @@ async Task<int> RunAsync(string queriesPath, string reportPath, int timeoutSec)
     // 轮询重试连接：服务启动+索引首建期间管道可能尚未监听，单次 Connect 15s 不够（上轮实弹步超时实证）
     int attempts = 0;
     var connectSw = Stopwatch.StartNew();
+    Console.WriteLine($"[INFO] 开始连接管道 {PipeName}（窗口 90s）");
     while (true)
     {
         attempts++;
@@ -121,9 +122,20 @@ async Task<int> RunAsync(string queriesPath, string reportPath, int timeoutSec)
     // 等索引就绪：文件名索引必须就绪；内容索引就绪或超时（超时后内容类查询按实际结果判）
     bool contentReady = false;
     var sw = Stopwatch.StartNew();
+    int polls = 0;
     while (sw.Elapsed.TotalSeconds < timeoutSec)
     {
-        var status = await CallAsync<IndexStatus>(2, null, CancellationToken.None);
+        polls++;
+        IndexStatus status;
+        try { status = await CallAsync<IndexStatus>(2, null, CancellationToken.None); }
+        catch (TimeoutException tex)
+        {
+            lines.Add($"[FAIL] 索引状态轮询第 {polls} 次: {tex.Message}");
+            Console.WriteLine($"[FAIL] 索引状态轮询第 {polls} 次: {tex.Message}");
+            break;
+        }
+        if (polls % 10 == 1)
+            Console.WriteLine($"[INFO] 轮询 {polls}: FileCount={status.FileCount} FilenameReady={status.FilenameIndexReady} ContentReady={status.ContentIndexReady} Pending={status.PendingContentQueue}");
         if (status.FilenameIndexReady && status.FileCount > 0)
         {
             contentReady = status.ContentIndexReady && status.PendingContentQueue == 0;
@@ -184,29 +196,39 @@ async Task<int> RunAsync(string queriesPath, string reportPath, int timeoutSec)
     return strictFails == 0 ? 0 : 1;
 }
 
-// ---- 管道调用（帧头 12B，与 App PipeClient 同构） ----
+// ---- 管道调用（帧头 12B，与 App PipeClient 同构；单次调用 30s 超时防挂死盲等） ----
 async Task<TResp> CallAsync<TResp>(ushort method, object? request, CancellationToken ct) where TResp : class
 {
-    byte[] payload = request is null
-        ? []
-        : JsonSerializer.SerializeToUtf8Bytes(request, request.GetType());
-    var frame = new byte[12 + payload.Length];
-    BitConverter.GetBytes(payload.Length + 12).CopyTo(frame, 0);
-    BitConverter.GetBytes(ProtocolVersion).CopyTo(frame, 4);
-    BitConverter.GetBytes(method).CopyTo(frame, 6);
-    BitConverter.GetBytes(_seq++).CopyTo(frame, 8);
-    payload.CopyTo(frame, 12);
+    using var callCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    callCts.CancelAfter(TimeSpan.FromSeconds(30));
+    var token = callCts.Token;
+    try
+    {
+        byte[] payload = request is null
+            ? []
+            : JsonSerializer.SerializeToUtf8Bytes(request, request.GetType());
+        var frame = new byte[12 + payload.Length];
+        BitConverter.GetBytes(payload.Length + 12).CopyTo(frame, 0);
+        BitConverter.GetBytes(ProtocolVersion).CopyTo(frame, 4);
+        BitConverter.GetBytes(method).CopyTo(frame, 6);
+        BitConverter.GetBytes(_seq++).CopyTo(frame, 8);
+        payload.CopyTo(frame, 12);
 
-    await pipe.WriteAsync(frame, ct);
-    await pipe.FlushAsync(ct);
+        await pipe.WriteAsync(frame, token);
+        await pipe.FlushAsync(token);
 
-    var header = new byte[12];
-    await ReadExactlyAsync(header, ct);
-    int respLen = BitConverter.ToInt32(header, 0) - 12;
-    var respPayload = new byte[respLen];
-    await ReadExactlyAsync(respPayload, ct);
-    return JsonSerializer.Deserialize<TResp>(respPayload)
-        ?? throw new InvalidDataException($"方法 {method} 空响应");
+        var header = new byte[12];
+        await ReadExactlyAsync(header, token);
+        int respLen = BitConverter.ToInt32(header, 0) - 12;
+        var respPayload = new byte[respLen];
+        await ReadExactlyAsync(respPayload, token);
+        return JsonSerializer.Deserialize<TResp>(respPayload)
+            ?? throw new InvalidDataException($"方法 {method} 空响应");
+    }
+    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+    {
+        throw new TimeoutException($"方法 {method} 单次调用 30s 超时（写或读挂死，服务端无响应）");
+    }
 }
 
 async Task ReadExactlyAsync(byte[] buffer, CancellationToken ct)
