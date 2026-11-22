@@ -148,19 +148,27 @@ public static class IndexPersistence
             // FileShare.ReadWrite：sink 未轮转时写句柄仍持有 journal，恢复侧只读不排斥
             using (var fs = new FileStream(journalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
-                var replay = JournalWriter.Replay(fs, e =>
+                try
                 {
-                    target.ApplyEvent(new FileEvent
+                    var replay = JournalWriter.Replay(fs, e =>
                     {
-                        Kind = e.IsDelete ? FileChangeKind.Deleted : FileChangeKind.ContentModified,
-                        FileReference = e.FileReference,
-                        Path = e.Name,
-                        UtcTimestamp = e.ModifiedUtc,
-                        ParentReference = e.ParentReference,
+                        target.ApplyEvent(new FileEvent
+                        {
+                            Kind = e.IsDelete ? FileChangeKind.Deleted : FileChangeKind.ContentModified,
+                            FileReference = e.FileReference,
+                            Path = e.Name,
+                            UtcTimestamp = e.ModifiedUtc,
+                            ParentReference = e.ParentReference,
+                        });
+                        frames++;
                     });
-                    frames++;
-                });
-                torn = replay.TruncatedTailBytes;
+                    torn = replay.TruncatedTailBytes;
+                }
+                catch (InvalidDataException)
+                {
+                    // 关7口径：journal 整体损坏（文件头/版本非法）按撕裂尾同等对待——
+                    // 保留快照与已重放前缀降级服务，绝不因日志损坏拒绝启动（帧级损坏本就不抛，此处只兜文件头）。
+                }
             }
         }
 
