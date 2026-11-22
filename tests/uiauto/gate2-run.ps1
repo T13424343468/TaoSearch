@@ -71,8 +71,11 @@ Log '== 启动壳层 =='
 $settingsDir = "$env:LOCALAPPDATA\TaoSearch"
 New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
 Set-Content "$settingsDir\settings.json" '{"OnboardingCompleted":true,"ShowQuickOnStartup":false}' -Encoding UTF8
-$app = Start-Process -FilePath "$PublishDir\TaoSearch.App.exe" -WorkingDirectory $PublishDir -PassThru
+$appLog = "$EvidenceDir\app.log"
+$app = Start-Process -FilePath "$PublishDir\TaoSearch.App.exe" -WorkingDirectory $PublishDir -PassThru `
+    -RedirectStandardOutput "$EvidenceDir\app.out.log" -RedirectStandardError $appLog
 Start-Sleep -Seconds 6
+if ($app.HasExited) { Log "  壳层退出码: $($app.ExitCode)"; if (Test-Path $appLog) { Get-Content $appLog | ForEach-Object { Log "  app| $_" } } }
 Check 'G2-00b' '壳层进程存活（启动 6 秒未退出）' (-not $app.HasExited) $true
 
 # ---- UIA 检查 ----

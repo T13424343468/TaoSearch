@@ -60,7 +60,7 @@ public sealed partial class MainWindow : Window
         var isContent = ReferenceEquals(clicked, TabContent);
         ChipsPanel.Visibility = isContent ? Visibility.Visible : Visibility.Collapsed;
         SearchBox.PlaceholderText = isContent ? "输入关键词，在文档内容中检索" : "输入文件名，支持 * 通配与 regex: 正则";
-        if (ViewModel.IsContentScope != isContent)
+        if (ViewModel is not null && ViewModel.IsContentScope != isContent)
             ViewModel.IsContentScope = isContent;
     }
 
@@ -77,6 +77,8 @@ public sealed partial class MainWindow : Window
 
     private void OnSortChanged(object sender, SelectionChangedEventArgs e)
     {
+        // XAML 解析期 ComboBoxItem 预置 IsSelected 会触发本回调，此时 ViewModel 尚未构造
+        if (ViewModel is null) return;
         if (SortBox.SelectedItem is ComboBoxItem item && item.Tag is string tag
             && Enum.TryParse<MainViewModel.SortKind>(tag, out var kind))
         {
@@ -101,6 +103,8 @@ public sealed partial class MainWindow : Window
 
     private void OnNavChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
+        // XAML 解析期首项 IsSelected 会触发本回调，此时 OverlayHost/ViewModel 尚未构造完成
+        if (OverlayHost is null) return;
         if (sender.SelectedItem is NavigationViewItem item)
         {
             switch (item.Tag)
