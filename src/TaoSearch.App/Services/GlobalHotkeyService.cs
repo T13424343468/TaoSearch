@@ -86,7 +86,7 @@ public sealed class GlobalHotkeyService : IDisposable
     private static extern IntPtr CreateWindowExW(uint exStyle, string className, string windowName, uint style, int x, int y, int w, int h, IntPtr parent, IntPtr menu, IntPtr inst, IntPtr param);
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool DestroyWindow(IntPtr hWnd);
-    [DllImport("kernel32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern bool PostThreadMessage(int threadId, uint msg, IntPtr wParam, IntPtr lParam);
 
     [StructLayout(LayoutKind.Sequential)]

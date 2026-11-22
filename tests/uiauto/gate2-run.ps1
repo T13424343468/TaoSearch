@@ -38,6 +38,23 @@ function Screenshot([string]$name) {
     } catch { Log "  截图失败 $name : $_" }
 }
 
+function Click-UiaElement([System.Windows.Automation.AutomationElement]$el) {
+    # Select 不可用时按可点坐标真实点一下（托管 UIA 无 LegacyIAccessiblePattern）
+    try {
+        if (-not ('G2Click.Native' -as [type])) {
+            Add-Type -Namespace G2Click -Name Native -MemberDefinition '
+[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+[DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);'
+        }
+        $pt = $el.GetClickablePoint()
+        [G2Click.Native]::SetCursorPos([int]$pt.X, [int]$pt.Y) | Out-Null
+        Start-Sleep -Milliseconds 200
+        [G2Click.Native]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
+        [G2Click.Native]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+        return $true
+    } catch { Log "  鼠标点击失败: $_"; return $false }
+}
+
 function Close-UiaDialog([System.Windows.Automation.AutomationElement]$w) {
     # 关闭可能打开的 ContentDialog（关闭按钮文案「好」），模拟真实用户先关弹窗再操作
     try {
@@ -539,7 +556,7 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
             $mobai = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $rbCond)
             if ($mobai) {
                 try { ($mobai.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select() }
-                catch { ($mobai.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)).DoDefaultAction() }
+                catch { if (-not (Click-UiaElement $mobai)) { throw "墨白单选不可选: $_" } }
                 Start-Sleep -Seconds 2
                 Screenshot 'G2-27-theme-dark'
                 $rbCond2 = New-Object System.Windows.Automation.AndCondition(
@@ -551,7 +568,7 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
                 $shuimo = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $rbCond2)
                 if ($shuimo) {
                     try { ($shuimo.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select() }
-                    catch { ($shuimo.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)).DoDefaultAction() }
+                    catch { if (-not (Click-UiaElement $shuimo)) { throw "水墨单选不可选: $_" } }
                     Start-Sleep -Seconds 1
                 }
                 $themeOk = $true
@@ -651,13 +668,32 @@ try {
         $win2 = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
             (New-Object System.Windows.Automation.PropertyCondition(
                 [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch')))
+        Log "  转发回读: 主窗$(if ($win2) { '已找到' } else { '未找到' })"
         if ($win2) {
-            $ed2 = $win2.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            # G2-27 停在设置页：先切回「搜索」页，保证读到的是搜索框
+            $navHome = $win2.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
                 (New-Object System.Windows.Automation.PropertyCondition(
-                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                    [System.Windows.Automation.ControlType]::Edit)))
-            if ($ed2) { $val2 = ($ed2.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).Value }
+                    [System.Windows.Automation.AutomationElement]::NameProperty, '搜索')))
+            if ($navHome) {
+                try { ($navHome.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select() }
+                catch { try { ($navHome.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() } catch { } }
+                Start-Sleep -Seconds 1
+            }
+            foreach ($i in 1..10) {
+                $ed2 = $win2.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Edit)))
+                if ($ed2) {
+                    $val2 = ($ed2.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).Value
+                    if ($val2 -eq 'readme') { break }
+                } else {
+                    Log "  转发回读: 第$i轮未找到 Edit 控件"
+                }
+                Start-Sleep -Seconds 1
+            }
             $fwd = ($val2 -eq 'readme')
+            Screenshot 'G2-26-forward-readback'
         }
     } catch { Log "  转发回读异常: $_" }
     Check 'G2-26c' "转发后原实例搜索框=readme（回读=$val2）" $fwd $true
@@ -686,7 +722,8 @@ try {
         } catch { }
     }
     Check 'G2-25' 'Alt+Q 真实按键唤起快速搜索窗' ($null -ne $quickHot) $true
-    if ($quickHot) { Screenshot 'G2-25-hotkey-quick' }
+    Screenshot 'G2-25-hotkey-quick'
+    if (-not $quickHot) { Log "  Alt+Q 诊断: 预检快速窗$(if ($pre) { '开着' } else { '已关' })，按键后 10 秒未发现快速窗" }
 } catch { Check 'G2-25' "Alt+Q 按键异常: $_" $false $true }
 
 # ---- 托盘「退出」命令（G2-24，全面覆盖令：退出链路实测）----
