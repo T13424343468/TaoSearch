@@ -39,7 +39,8 @@ public partial class App : Application
     private void RegisterHotkey()
     {
         if (!AppSettings.Instance.QuickHotkeyEnabled) return;
-        _hotkey = new GlobalHotkeyService(DispatcherQueue, ToggleQuickWindow);
+        var queue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        _hotkey = new GlobalHotkeyService(queue, ToggleQuickWindow);
         _hotkey.Start(); // 注册失败不阻断启动，真机验收补提示
     }
 
@@ -61,9 +62,9 @@ public partial class App : Application
 
     public void ToggleQuickWindow()
     {
-        if (_quickWindow is { Visible: true })
+        if (_quickWindow is { IsVisible: true })
         {
-            _quickWindow.Hide();
+            _quickWindow.HideQuick();
         }
         else
         {

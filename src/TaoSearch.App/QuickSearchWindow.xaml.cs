@@ -19,6 +19,9 @@ public sealed partial class QuickSearchWindow : Window
     private CancellationTokenSource? _debounceCts;
     private readonly List<HitViewModel> _items = [];
 
+    /// <summary>WinUI3 Window 无 Visible/Hide，自行跟踪显隐。</summary>
+    public bool IsVisible { get; private set; }
+
     public QuickSearchWindow()
     {
         InitializeComponent();
@@ -30,9 +33,10 @@ public sealed partial class QuickSearchWindow : Window
         }
         catch { /* 图标缺失不阻断 */ }
 
-        // 迷你窗形态：640 宽、置顶显示
+        // 迷你窗形态：640 宽、置顶显示（OverlappedPresenter 承载置顶）
         AppWindow.Resize(new Windows.Graphics.SizeInt32(640, 480));
-        AppWindow.IsAlwaysOnTop = true;
+        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+            presenter.IsAlwaysOnTop = true;
 
         QuickInput.KeyDown += OnInputKeyDown;
         QuickList.ItemsSource = _items;
@@ -44,7 +48,15 @@ public sealed partial class QuickSearchWindow : Window
     {
         QuickInput.Text = "";
         base.Activate();
+        IsVisible = true;
         QuickInput.Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>隐藏窗口（WinUI3 Window 无 Hide，走 AppWindow）。</summary>
+    public void HideQuick()
+    {
+        AppWindow.Hide();
+        IsVisible = false;
     }
 
     private void OnInputChanged(object sender, TextChangedEventArgs e)
@@ -142,7 +154,7 @@ public sealed partial class QuickSearchWindow : Window
                 e.Handled = true;
                 break;
             case Windows.System.VirtualKey.Escape:
-                Hide();
+                HideQuick();
                 e.Handled = true;
                 break;
         }
@@ -155,7 +167,7 @@ public sealed partial class QuickSearchWindow : Window
         if (QuickList.SelectedItem is not HitViewModel hit) return;
         _settings.PushRecentSearch(QuickInput.Text.Trim());
         FileLauncher.OpenFile(hit.Path);
-        if (closeAfter) Hide();
+        if (closeAfter) HideQuick();
     }
 
     private void RevealSelected()
@@ -163,6 +175,6 @@ public sealed partial class QuickSearchWindow : Window
         if (QuickList.SelectedItem is not HitViewModel hit) return;
         _settings.PushRecentSearch(QuickInput.Text.Trim());
         FileLauncher.RevealInExplorer(hit.Path);
-        Hide();
+        HideQuick();
     }
 }
