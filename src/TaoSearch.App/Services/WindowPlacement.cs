@@ -18,9 +18,10 @@ public static class WindowPlacement
 
             window.AppWindow.Resize(new SizeInt32(width, height));
 
-            var area = DisplayArea.GetFromWindowId(window.AppWindow.Id, CoordinateDisplayArea.WorkArea);
-            int x = area.X + Math.Max(0, (area.Width - width) / 2);
-            int y = area.Y + Math.Max(0, (area.Height - height) / 2);
+            // 工作区（排除任务栏）：GetFromWindowId 第二参为回退策略（Nearest=找不到就近给），WorkArea 为 RectInt32
+            var workArea = DisplayArea.GetFromWindowId(window.AppWindow.Id, DisplayAreaFallback.Nearest).WorkArea;
+            int x = workArea.X + Math.Max(0, (workArea.Width - width) / 2);
+            int y = workArea.Y + Math.Max(0, (workArea.Height - height) / 2);
             window.AppWindow.Move(new PointInt32(x, y));
         }
         catch

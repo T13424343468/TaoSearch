@@ -62,7 +62,8 @@ public sealed partial class MainWindow : Window
         _ = RefreshIndexStatusAsync();
 
         // 索引状态条自动刷新（0.1.0.9）：不再只在构造时取一次
-        _statusTimer = DispatcherQueue.CreateTimer();
+        // Window 非 DependencyObject，无 DispatcherQueue 属性，取当前线程队列
+        _statusTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _statusTimer.Interval = TimeSpan.FromSeconds(5);
         _statusTimer.Tick += (_, _) => _ = RefreshIndexStatusAsync();
         _statusTimer.Start();
