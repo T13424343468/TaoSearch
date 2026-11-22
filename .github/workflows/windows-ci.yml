@@ -63,15 +63,22 @@ jobs:
           dotnet test TaoSearch.Kernel.slnx -c Release --no-build --nologo
           --filter "Category!=Benchmark"
           --collect:"XPlat Code Coverage;Format=cobertura"
-          --results-directory "D:\taosearch-coverage"
+          --results-directory "coverage-results"
 
       - name: 上传测试证据
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-evidence
-          path: |
-            D:\taosearch-test-results\**
-            D:\taosearch-coverage\**
+          path: D:\taosearch-test-results\**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: 上传覆盖账（cobertura，随全测台账交付）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-账
+          path: coverage-results/**
           if-no-files-found: warn
           retention-days: 14
