@@ -67,6 +67,10 @@ if (-not $pipeUp) {
 
 # ---- 启动壳层 ----
 Log '== 启动壳层 =='
+# 预置本地设置：跳过首启引导（引导窗标题非 TaoSearch，会干扰 G2-01 定位）
+$settingsDir = "$env:LOCALAPPDATA\TaoSearch"
+New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
+Set-Content "$settingsDir\settings.json" '{"OnboardingCompleted":true,"ShowQuickOnStartup":false}' -Encoding UTF8
 $app = Start-Process -FilePath "$PublishDir\TaoSearch.App.exe" -WorkingDirectory $PublishDir -PassThru
 Start-Sleep -Seconds 6
 Check 'G2-00b' '壳层进程存活（启动 6 秒未退出）' (-not $app.HasExited) $true

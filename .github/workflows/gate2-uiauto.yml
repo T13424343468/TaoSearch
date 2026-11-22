@@ -5,6 +5,7 @@ on:
   push:
     branches: [ main ]
     paths:
+      - 'src/**'
       - 'tests/uiauto/**'
       - '.github/workflows/gate2-uiauto.yml'
 
