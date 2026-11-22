@@ -1,7 +1,7 @@
 ﻿# 关2「能不能用」界面自动化清单（主班补位版 v2，2026-11-22 全面覆盖令）
 # 口径：真 Windows 桌面会话内启动服务+壳层，UIA 逐项点通，每步截图留证。
-# v2（2026-11-22 老板令「全部都要补，要全面覆盖，没有死角」）：新增引导全流程（G2-11~15）、
-#   热键开关实际切换（G2-16）、托盘 UIA 探针（G2-17）、自启开关试切（G2-18）、引导跳过路径（G2-19）。
+# v3（2026-11-22 老板追问「托盘？视觉观感？」）：新增托盘命令链路 G2-20（关窗进托盘→右键回调→打开主窗复现）、
+#   托盘「快速搜索」拉起快速窗并截图（G2-21）；v2：引导全流程（G2-11~15）、热键开关切换（G2-16）、托盘 UIA 探针（G2-17）、自启开关试切（G2-18）、引导跳过路径（G2-19）。
 # 严格项失败 → 退出码非零（关2 不通过）；INFO 项只记账不判红。
 # 用法: pwsh -File gate2-run.ps1 -PublishDir <publish目录> -EvidenceDir <证据目录>
 param(
@@ -316,6 +316,73 @@ if ($win) {
             } catch { Check 'G2-18' "自启开关切换受限: $_" $false $false }
         } else { Check 'G2-18' '未定位到自启开关' $false $false }
     } catch { Log "  自启开关异常: $_" }
+
+    # ---- 托盘命令链路（G2-20/G2-21，老板令：托盘交互与视觉上云）----
+    # 链路：关主窗进托盘（进程不退）→ 托盘隐藏窗收右键回调 → WM_COMMAND「打开主窗」→ 主窗复现
+    Log '== 托盘命令链路 =='
+    try {
+        if (-not ('G2Tray.Native' -as [type])) {
+            Add-Type -Namespace G2Tray -Name Native -MemberDefinition '
+[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
+[DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wp, IntPtr lp);'
+        }
+        $trayHwnd = [G2Tray.Native]::FindWindowW('TaoSearchTrayWnd', $null)
+        Check 'G2-20' '托盘隐藏消息窗存在（TaoSearchTrayWnd）' ($trayHwnd -ne [IntPtr]::Zero) $true
+        if ($trayHwnd -ne [IntPtr]::Zero) {
+            # 第一步：关主窗 → 最小化进托盘（进程必须存活）
+            try { $app.CloseMainWindow() | Out-Null } catch { }
+            Start-Sleep -Seconds 3
+            $app.Refresh()
+            $hiddenOk = (-not $app.HasExited) -and ($app.MainWindowHandle -eq [IntPtr]::Zero)
+            Check 'G2-20b' '关主窗后进程存活且主窗隐藏（进托盘）' $hiddenOk $true
+            # 第二步：右键回调 + 托盘「打开主窗」命令 → 主窗复现
+            [G2Tray.Native]::PostMessageW($trayHwnd, 0x5554, [IntPtr]::Zero, [IntPtr]0x0205) | Out-Null
+            Start-Sleep -Milliseconds 1200
+            [G2Tray.Native]::PostMessageW($trayHwnd, 0x0111, [IntPtr]1, [IntPtr]::Zero) | Out-Null
+            $restored = $false
+            foreach ($i in 1..10) {
+                Start-Sleep -Seconds 2
+                try {
+                    $w2 = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
+                        (New-Object System.Windows.Automation.PropertyCondition(
+                            [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch')))
+                    if ($w2) { $restored = $true; break }
+                } catch { }
+            }
+            if (-not $restored) {
+                # 菜单可能模态停留：先 ESC 关菜单再补发一次命令
+                [G2Tray.Native]::PostMessageW($trayHwnd, 0x0100, [IntPtr]0x1B, [IntPtr]::Zero) | Out-Null
+                [G2Tray.Native]::PostMessageW($trayHwnd, 0x0101, [IntPtr]0x1B, [IntPtr]::Zero) | Out-Null
+                Start-Sleep -Milliseconds 800
+                [G2Tray.Native]::PostMessageW($trayHwnd, 0x0111, [IntPtr]1, [IntPtr]::Zero) | Out-Null
+                foreach ($i in 1..10) {
+                    Start-Sleep -Seconds 2
+                    try {
+                        $w2 = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
+                            (New-Object System.Windows.Automation.PropertyCondition(
+                                [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch')))
+                        if ($w2) { $restored = $true; break }
+                    } catch { }
+                }
+            }
+            Check 'G2-20c' '托盘「打开主窗」命令后主窗复现' $restored $true
+            Screenshot 'G2-20-tray-restore'
+            # 第三步：托盘「快速搜索」→ 快速搜索窗出现（视觉证据）
+            [G2Tray.Native]::PostMessageW($trayHwnd, 0x0111, [IntPtr]2, [IntPtr]::Zero) | Out-Null
+            $quick = $null
+            foreach ($i in 1..10) {
+                Start-Sleep -Seconds 2
+                try {
+                    $quick = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
+                        (New-Object System.Windows.Automation.PropertyCondition(
+                            [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch 快速搜索')))
+                    if ($quick) { break }
+                } catch { }
+            }
+            Check 'G2-21' '托盘「快速搜索」命令拉起快速搜索窗' ($null -ne $quick) $true
+            if ($quick) { Screenshot 'G2-21-quick-window' }
+        }
+    } catch { Check 'G2-20' "托盘命令链路异常: $_" $false $true }
 
     Screenshot 'G2-99-final'
 }
