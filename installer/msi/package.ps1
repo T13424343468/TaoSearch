@@ -202,12 +202,17 @@ $wxs = @"
     <Feature Id="Core" Title="TaoSearch 主程序" Description="搜索服务 + 界面 + 右键菜单（必装）" Level="1" AllowAbsent="no">
       $components
       <Component Directory="ApplicationProgramsFolder">
-        <Shortcut Id="MenuLnk" Name="TaoSearch" Target="[INSTALLFOLDER]TaoSearch.App.exe" WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="MenuLnk" Name="TaoSearch" Target="[INSTALLFOLDER]TaoSearch.App.exe" WorkingDirectory="INSTALLFOLDER">
+          <!-- AUMID 与壳层 JumpListService.AppId 一致，任务栏跳转列表据此挂接 -->
+          <ShortcutProperty Key="System.AppUserModel.ID" Value="Tao.TaoSearch" />
+        </Shortcut>
         <RemoveFolder Id="RemoveMenuDir" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\Tao\TaoSearch" Name="MenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
       <Component Directory="DesktopFolder">
-        <Shortcut Id="DesktopLnk" Name="TaoSearch" Target="[INSTALLFOLDER]TaoSearch.App.exe" WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="DesktopLnk" Name="TaoSearch" Target="[INSTALLFOLDER]TaoSearch.App.exe" WorkingDirectory="INSTALLFOLDER">
+          <ShortcutProperty Key="System.AppUserModel.ID" Value="Tao.TaoSearch" />
+        </Shortcut>
         <RegistryValue Root="HKCU" Key="Software\Tao\TaoSearch" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
       <!-- 用户级旧右键键清理: 装时清掉残留 (新键不被旧键遮蔽), 卸载时清掉应用运行时写的键 (卸载即干净) -->

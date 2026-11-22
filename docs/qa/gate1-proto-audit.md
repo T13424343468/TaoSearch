@@ -13,7 +13,7 @@
 | quick 快速搜索窗 | **未实现** | Alt+Q 唤起迷你窗：输入即搜、键盘上下选择、Enter 打开、Ctrl+E 打开目录、Esc 隐藏、最近搜索；实现完全没有此窗 |
 | onboarding 首次引导 | **未实现** | 欢迎→索引位置（默认 D:\TaoSearch\Index，备选 AppData）与范围（整 D 盘/仅下载文档桌面/自定义）→建索引进度（MFT 直读、可暂停/取消）→完成；实现完全没有 |
 | settings 设置页 | **部分实现** | 已有：索引状态卡（简版）、重建索引、暂停、存储位置（只读展示）、开机自启开关。缺：索引库位置更改、排除目录增删、内容索引后台优先级、启动时显示快速搜索窗、外观主题切换（水墨/墨白）、快捷键设置（Alt+Q、Ctrl+Shift+S）、关于+检查更新 |
-| shell Win11 集成 | **部分覆盖** | 右键菜单（文件/文件夹）已由安装器勾选实现；任务栏跳转列表未做；全局快捷键未做 |
+| shell Win11 集成 | **已覆盖** | 右键菜单（文件/文件夹）已由安装器勾选实现；任务栏跳转列表已补（经典 Shell 自定义目标列表，见下）；全局快捷键 Alt+Q 已补 |
 
 ## 关1 不通过项（必须补齐才能出包）
 
@@ -38,6 +38,6 @@
 | 设置页缺项 7 项 | **已补 6 项** | SettingsPage：索引库位置更改（FolderPicker）/排除目录增删/内容索引优先级/启动时显示快速搜索窗/主题切换（水墨/墨白）/关于+检查更新（如实告知更新服务未接入，不伪造「已是最新」）；快捷键自定义按原型口径标注「当前版本固定」 |
 | 主窗口双标签+chips+排序/索引状态条/空态报错 | **已补** | MainWindow：文件名/内容双标签（单选互斥）、chips 全部/Markdown/文档/表格/代码、排序 ComboBox 五项、索引状态条（就绪/建索引中+文件数）、空态（准备好了/未找到/内容未找到）与报错横幅 |
 | 全局快捷键 Alt+Q | **已补** | GlobalHotkeyService：后台线程 message-only 窗口 RegisterHotKey，WM_HOTKEY 经 DispatcherQueue 回 UI 线程；Ctrl+Shift+S 未做（原型主入口为 Alt+Q） |
-| 任务栏跳转列表 | **未做** | 留待下一班（JumpList 需 MSIX 口径核对） |
+| 任务栏跳转列表 | **已补（经典 Shell 口径）** | JumpListService：ICustomDestinationList + IShellLinkW + IPropertyStore COM 互操作（无包身份依赖，WindowsPackageType=None 下可用）；任务「快速搜索窗（Alt + Q）」→ --quick、「打开索引位置」→ --open-index；最近搜索分类（settings.json RecentSearches，最多 3 条）→ --search &lt;关键词&gt;；AUMID Tao.TaoSearch 进程内显式设置 + MSI 两处快捷方式 ShortcutProperty 对齐；单实例转发（Mutex+EventWaitHandle+临时文件，重复点击不叠窗）；AppendCategory 被系统拒绝时 PreserveSig 跳过分类保留任务项，全部失败降级不阻断启动。COM 标识逐字核验（ReactOS SDK objectarray.idl/propsys.idl + MS 文档）：IID_IObjectCollection=5632B1A4-…（2D3468C1 为 CLSID_EnumerableObjectCollection coclass，勿混用）。沙箱 net10.0 独立编译零错；真机验收补清单声明（跳转列表显示、点击行为、单实例转发） |
 
 编译验证：windows-ci 561337f 全绿（WinUI3 XAML 编译含壳层，零错）。修正记录：RaiseEvent→直调、Window.Hide→AppWindow.Hide、IsAlwaysOnTop→OverlappedPresenter、CI 补 -p:Platform=x64。

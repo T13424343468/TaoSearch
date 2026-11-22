@@ -3,7 +3,7 @@ using TaoSearch.App.Services;
 
 namespace TaoSearch.App;
 
-/// <summary>应用入口：首启引导 / 主窗 / 快速搜索窗（Alt+Q 全局热键）/ 主题。</summary>
+/// <summary>应用入口：首启引导 / 主窗 / 快速搜索窗（Alt+Q 全局热键）/ 主题 / 跳转列表。</summary>
 public partial class App : Application
 {
     public static App? Instance { get; private set; }
@@ -16,6 +16,18 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        JumpListService.SetProcessAppId();
+
+        var launchArgs = Environment.GetCommandLineArgs().Skip(1).ToArray();
+
+        // 单实例：跳转列表点击拉起新进程时转发给已运行实例后退出
+        if (!SingleInstanceLaunch.TryAcquire())
+        {
+            SingleInstanceLaunch.ForwardToRunningInstance(launchArgs);
+            Environment.Exit(0);
+            return;
+        }
+
         var settings = AppSettings.Instance;
 
         if (!settings.OnboardingCompleted)
@@ -34,6 +46,41 @@ public partial class App : Application
 
         RegisterHotkey();
         ApplyTheme(settings.Theme);
+
+        // 跳转列表参数：监听后续实例转发（回调切回 UI 线程）+ 处理本进程冷启动参数
+        var queue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        SingleInstanceLaunch.StartListening(forwarded => queue.TryEnqueue(() => ApplyLaunchArgs(forwarded)));
+        ApplyLaunchArgs(launchArgs);
+
+        // 构建任务栏跳转列表（失败降级，不阻断启动）
+        _ = Task.Run(() => JumpListService.Build(settings.RecentSearches));
+    }
+
+    /// <summary>应用跳转列表/命令行参数：--quick / --open-index / --search &lt;关键词&gt;。</summary>
+    private void ApplyLaunchArgs(string[] args)
+    {
+        try
+        {
+            if (LaunchArgs.HasQuick(args)) ShowQuickWindow();
+            if (LaunchArgs.TryGetSearch(args, out var keyword))
+            {
+                ShowMainWindow();
+                if (_mainWindow is not null) _mainWindow.ViewModel.Query = keyword;
+            }
+            if (LaunchArgs.HasOpenIndex(args)) OpenIndexLocation();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine($"[Launch] 参数应用失败: {ex.Message}");
+        }
+    }
+
+    private void OpenIndexLocation()
+    {
+        var dir = AppSettings.Instance.IndexLocation;
+        if (Directory.Exists(dir))
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
     }
 
     private void RegisterHotkey()
