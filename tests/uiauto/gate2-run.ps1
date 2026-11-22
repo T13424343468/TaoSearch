@@ -189,6 +189,28 @@ else {
 
 # ---- 收尾 ----
 Check 'G2-10' '检查全程壳层未崩溃' (-not $app.HasExited) $true
+
+# ---- 崩溃取证（0.1.0.9）：壳层若崩溃，从事件日志与 crash.log 取堆栈 ----
+Log '== 崩溃取证 =='
+try {
+    $since = (Get-Date).AddMinutes(-20)
+    $evts = Get-WinEvent -FilterHashtable @{ LogName='Application'; StartTime=$since } -ErrorAction SilentlyContinue |
+        Where-Object { $_.ProviderName -in '.NET Runtime','Application Error','Windows Error Reporting' } |
+        Select-Object -First 8
+    foreach ($evt in $evts) {
+        Log "  evt| $($evt.TimeCreated) [$($evt.ProviderName)]"
+        ($evt.Message -split "`n" | Select-Object -First 25) | ForEach-Object { Log "  evt| $_" }
+    }
+    if (-not $evts) { Log '  evt| 近 20 分钟无 .NET Runtime / Application Error / WER 事件' }
+} catch { Log "  事件日志读取失败: $_" }
+$crashLog = "$settingsDir\crash.log"
+if (Test-Path $crashLog) {
+    Log '== 壳层 crash.log =='
+    Get-Content $crashLog | ForEach-Object { Log "  crash| $_" }
+    Copy-Item $crashLog "$EvidenceDir\crash.log" -Force
+} else {
+    Log '  crash| 无 crash.log（壳层未产生托管未处理异常记录）'
+}
 try { $app.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 2; if (-not $app.HasExited) { $app.Kill() } } catch { }
 try { if (-not $svc.HasExited) { $svc.Kill() } } catch { }
 

@@ -17,6 +17,9 @@ public sealed partial class SettingsPage : Page
     /// <summary>关于行：版本号取自程序集（0.1.0.9：不再写死，随包自动更新）。</summary>
     public string AboutLine { get; } = $"TaoSearch · 版本 {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.1.0"}";
 
+    /// <summary>程序化赋值期间抑制事件（0.1.0.9 修复：进页赋值曾误触发 Toggled→重注册热键）。</summary>
+    private bool _suppressEvents;
+
     public SettingsPage()
     {
         InitializeComponent();
@@ -28,17 +31,25 @@ public sealed partial class SettingsPage : Page
     {
         var settings = AppSettings.Instance;
         ExcludeList.ItemsSource = settings.ExcludedDirectories;
-        QuickStartupToggle.IsOn = settings.ShowQuickOnStartup;
-        HotkeyToggle.IsOn = settings.QuickHotkeyEnabled;
-        UpdateHotkeyNote();
-        (settings.IsDarkTheme ? ThemeMobai : ThemeShuimo).IsChecked = true;
-        var priority = settings.ContentPriority switch
+        _suppressEvents = true;
+        try
         {
-            "low" => 1,
-            "normal" => 2,
-            _ => 0,
-        };
-        PriorityBox.SelectedIndex = priority;
+            QuickStartupToggle.IsOn = settings.ShowQuickOnStartup;
+            HotkeyToggle.IsOn = settings.QuickHotkeyEnabled;
+            (settings.IsDarkTheme ? ThemeMobai : ThemeShuimo).IsChecked = true;
+            var priority = settings.ContentPriority switch
+            {
+                "low" => 1,
+                "normal" => 2,
+                _ => 0,
+            };
+            PriorityBox.SelectedIndex = priority;
+        }
+        finally
+        {
+            _suppressEvents = false;
+        }
+        UpdateHotkeyNote();
 
         // 进页自动加载 + 定时刷新（0.1.0.9）：状态不再非要手动点刷新
         _ = ViewModel.RefreshAsync();
@@ -117,6 +128,7 @@ public sealed partial class SettingsPage : Page
     // —— 内容索引优先级 ——
     private void OnPriorityChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_suppressEvents) return;
         if (PriorityBox.SelectedItem is ComboBoxItem item && item.Tag is string tag)
         {
             AppSettings.Instance.ContentPriority = tag;
@@ -127,6 +139,7 @@ public sealed partial class SettingsPage : Page
     // —— 主题 ——
     private void OnThemeChanged(object sender, RoutedEventArgs e)
     {
+        if (_suppressEvents) return;
         var theme = ThemeMobai.IsChecked == true ? "mobai" : "shuimo";
         AppSettings.Instance.Theme = theme;
         AppSettings.Instance.Save();
@@ -136,6 +149,7 @@ public sealed partial class SettingsPage : Page
     // —— 快速搜索窗 ——
     private void OnQuickStartupToggled(object sender, RoutedEventArgs e)
     {
+        if (_suppressEvents) return;
         AppSettings.Instance.ShowQuickOnStartup = QuickStartupToggle.IsOn;
         AppSettings.Instance.Save();
     }
@@ -143,6 +157,7 @@ public sealed partial class SettingsPage : Page
     // —— 全局热键开关（0.1.0.9：即时生效 + 结果反馈） ——
     private void OnHotkeyToggled(object sender, RoutedEventArgs e)
     {
+        if (_suppressEvents) return;
         AppSettings.Instance.QuickHotkeyEnabled = HotkeyToggle.IsOn;
         AppSettings.Instance.Save();
         App.Instance?.ReRegisterHotkey();

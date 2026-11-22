@@ -18,7 +18,38 @@ public partial class App : Application
     /// <summary>托盘「退出」触发的窗口关闭放行一次（其余关闭一律缩托盘）。</summary>
     public bool SuppressCloseToTrayOnce { get; set; }
 
-    public App() => Instance = this;
+    public App()
+    {
+        Instance = this;
+
+        // 全局异常取证（0.1.0.9）：XAML 原生崩溃走 WER 事件日志，托管异常走 crash.log
+        UnhandledException += (s, e) =>
+        {
+            LogCrash("Application.UnhandledException", e.Exception);
+            e.Handled = false;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            LogCrash("AppDomain.UnhandledException", e.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (s, e) =>
+        {
+            LogCrash("UnobservedTaskException", e.Exception);
+            e.SetObserved();
+        };
+    }
+
+    /// <summary>全局异常落盘（0.1.0.9）：未处理异常写 crash.log，云测与真机排障取证用。</summary>
+    private static void LogCrash(string source, Exception? ex)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TaoSearch");
+            Directory.CreateDirectory(dir);
+            var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{source}] {ex?.GetType().FullName}: {ex?.Message}\n{ex?.StackTrace}\n---\n";
+            File.AppendAllText(Path.Combine(dir, "crash.log"), line);
+        }
+        catch { /* 取证失败不二次抛出 */ }
+    }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {

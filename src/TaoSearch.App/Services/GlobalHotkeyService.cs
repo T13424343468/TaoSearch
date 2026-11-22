@@ -30,16 +30,31 @@ public sealed class GlobalHotkeyService : IDisposable
         var ready = new ManualResetEventSlim();
         _thread = new Thread(() =>
         {
-            _hwnd = CreateMessageWindow();
-            if (_hwnd == IntPtr.Zero) { ready.Set(); return; }
-            _registered = RegisterHotKey(_hwnd, HOTKEY_ID, MOD_ALT | MOD_NOREPEAT, 'Q');
-            ready.Set();
-            while (GetMessage(out var msg, _hwnd, 0, 0))
+            try
             {
-                if (msg.message == WM_HOTKEY && msg.wParam == HOTKEY_ID)
-                    _dispatcher.TryEnqueue(() => _callback());
-                TranslateMessage(ref msg);
-                DispatchMessage(ref msg);
+                _hwnd = CreateMessageWindow();
+                if (_hwnd == IntPtr.Zero) { ready.Set(); return; }
+                _registered = RegisterHotKey(_hwnd, HOTKEY_ID, MOD_ALT | MOD_NOREPEAT, 'Q');
+                ready.Set();
+                int ret;
+                while ((ret = GetMessage(out var msg, _hwnd, 0, 0)) > 0)
+                {
+                    if (msg.message == WM_HOTKEY && msg.wParam == HOTKEY_ID)
+                        _dispatcher.TryEnqueue(() => _callback());
+                    TranslateMessage(ref msg);
+                    DispatchMessage(ref msg);
+                }
+                // ret == 0：WM_QUIT 正常退出；ret < 0：GetMessage 出错（如窗口已被销毁），同样退出
+            }
+            finally
+            {
+                // 清理必须由创建窗口的本线程执行：跨线程 Unregister/Destroy 会失败或行为未定义
+                if (_hwnd != IntPtr.Zero)
+                {
+                    if (_registered) UnregisterHotKey(_hwnd, HOTKEY_ID);
+                    DestroyWindow(_hwnd);
+                    _hwnd = IntPtr.Zero;
+                }
             }
         })
         { IsBackground = true, Name = "TaoSearch-Hotkey" };
@@ -49,15 +64,9 @@ public sealed class GlobalHotkeyService : IDisposable
         return _registered;
     }
 
+    /// <summary>通知热键线程退出；Unregister/Destroy 由线程自身在 finally 中完成（0.1.0.9 修复跨线程销毁）。</summary>
     public void Dispose()
     {
-        if (_hwnd != IntPtr.Zero)
-        {
-            if (_registered) UnregisterHotKey(_hwnd, HOTKEY_ID);
-            DestroyWindow(_hwnd);
-            _hwnd = IntPtr.Zero;
-        }
-        // PostThreadMessage WM_QUIT 结束消息循环
         if (_thread is { ManagedThreadId: var tid })
             PostThreadMessage(tid, 0x0012 /*WM_QUIT*/, IntPtr.Zero, IntPtr.Zero);
     }
@@ -67,8 +76,8 @@ public sealed class GlobalHotkeyService : IDisposable
     private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
-    [DllImport("user32.dll")]
-    private static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint min, uint max);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint min, uint max);
     [DllImport("user32.dll")]
     private static extern bool TranslateMessage(ref MSG lpMsg);
     [DllImport("user32.dll")]
