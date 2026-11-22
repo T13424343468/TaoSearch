@@ -44,7 +44,18 @@ public sealed class ContentIndexer : IDisposable
     private readonly ConcurrentQueue<string> _failed = new();
     private readonly ManualResetEventSlim _resumeGate = new(true);
     private volatile bool _paused;
+    private volatile bool _quiesce;   // 检查点静默期：消费者排空后停靠，快照写入期间不消费不落日志
+    private volatile bool _idle;      // 消费者停靠标志：SaveCheckpoint 以此确认静默点
     private int _pending;
+
+    /// <summary>检查点哨兵事件：空路径不落索引，仅用于把停在通道等待的消费者顶到停靠点。</summary>
+    private static readonly FileEvent CheckpointSentinel = new()
+    {
+        Kind = FileChangeKind.Created,
+        FileReference = 0,
+        Path = "",
+        UtcTimestamp = DateTimeOffset.UtcNow,
+    };
 
     /// <param name="journal">全文增量日志流（可选）：先写后应用口径，强杀后重放不丢事件；空则不落日志（纯内存索引）。</param>
     public ContentIndexer(InvertedIndex index, ParserRegistry? parsers = null, Stream? journal = null)
@@ -59,8 +70,9 @@ public sealed class ContentIndexer : IDisposable
     public void Enqueue(FileEvent e)
     {
         Interlocked.Increment(ref _pending);
-        // 队列满时同步等待：事件源是低频 USN 流，背压优于丢事件（丢事件=索引漏文件）
-        _queue.Writer.TryWrite(e);
+        // 队列满时同步等待：背压优于丢事件（TryWrite 满即丢，丢事件=索引漏文件且 pending 永不清零）
+        if (!_queue.Writer.TryWrite(e))
+            _queue.Writer.WriteAsync(e, CancellationToken.None).AsTask().GetAwaiter().GetResult();
     }
 
     public void Pause()
@@ -81,21 +93,25 @@ public sealed class ContentIndexer : IDisposable
     public int PendingCount => Volatile.Read(ref _pending);
 
     /// <summary>
-    /// 全文检查点（关7口径）：暂停消费 → 排空队列 → 快照原子替换 + journal 轮转（FullTextPersistence 口径）→ 恢复消费。
-    /// 暂停窗口内消费循环停在事件边界，快照与日志轮转无并发写竞争。
+    /// 全文检查点（关7口径）：静默 → 快照原子替换 + journal 轮转（FullTextPersistence 口径）。
+    /// 0.1.0.9 修复死锁：原「先暂停后排空」与消费者互等（消费者停在 gate，排空永无进展，
+    /// gate3/gate6 实测 Pending 恒 252）。现口径：置静默旗 → 消费者排空队列后停靠事件边界 →
+    /// 快照写入期间新事件只入队不消费不落日志（journal 先写后应用，快照后统一消费不丢）。
     /// </summary>
     public void SaveCheckpoint(string snapshotPath)
     {
         if (_journal is null) return;
-        Pause();
+        _quiesce = true;
         try
         {
-            while (Volatile.Read(ref _pending) > 0) Thread.Sleep(50);
+            Enqueue(CheckpointSentinel);  // 哨兵：把停在通道等待的消费者顶到停靠点
+            while (!_idle) Thread.Sleep(10);
             FullTextPersistence.SaveCheckpoint(_index, snapshotPath, _journal);
         }
         finally
         {
-            Resume();
+            _quiesce = false;
+            if (!_paused) _resumeGate.Set();  // 唤醒消费者继续消费快照期间积压的事件
         }
     }
 
@@ -140,6 +156,7 @@ public sealed class ContentIndexer : IDisposable
         {
             await foreach (var e in _queue.Reader.ReadAllAsync(ct).ConfigureAwait(false))
             {
+                // 用户暂停：冻结已入队事件（处理前停靠，Resume 后继续）
                 while (_paused && !ct.IsCancellationRequested) _resumeGate.Wait(ct);
                 ct.ThrowIfCancellationRequested();
                 try
@@ -155,13 +172,23 @@ public sealed class ContentIndexer : IDisposable
                 {
                     Interlocked.Decrement(ref _pending);
                 }
+                // 检查点停靠（0.1.0.9 修复死锁）：静默期排空队列后停在事件边界；
+                // 停靠期间新事件只入队（Enqueue 不唤醒 gate），快照写入与日志轮转无并发消费。
+                while (_quiesce && _queue.Reader.Count == 0 && !ct.IsCancellationRequested)
+                {
+                    _idle = true;
+                    _resumeGate.Wait(ct);
+                    _idle = false;
+                }
             }
         }
         catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { /* Dispose 竞态：gate/通道已释放，收尾即可 */ }
     }
 
     private void ProcessEvent(FileEvent e)
     {
+        if (e.Path.Length == 0) return; // 检查点哨兵：仅用于把消费者顶到停靠点，不落索引
         if (e.Kind == FileChangeKind.Deleted)
         {
             _index.RemoveDocument(e.FileReference);
