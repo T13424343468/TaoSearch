@@ -234,17 +234,24 @@ public sealed class TrayIconService : IDisposable
     private IntPtr CreateHiddenWindow(WndProcDelegate proc)
     {
         var pProc = Marshal.GetFunctionPointerForDelegate(proc);
+        var hInst = Marshal.GetHINSTANCE(typeof(TrayIconService).Module);
         var cls = new WNDCLASS
         {
             lpfnWndProc = pProc,
             lpszClassName = "TaoSearchTrayWnd",
-            hInstance = Marshal.GetHINSTANCE(typeof(TrayIconService).Module),
+            hInstance = hInst,
         };
-        if (RegisterClassW(ref cls) == 0 && Marshal.GetLastWin32Error() != 1410)
+        var atom = RegisterClassW(ref cls);
+        var gleReg = Marshal.GetLastWin32Error();
+        Console.Error.WriteLine($"[tray] RegisterClassW atom={atom} gle={gleReg} hInstance={hInst}");
+        if (atom == 0 && gleReg != 1410)
             return IntPtr.Zero; // 1410=CLASS_ALREADY_EXISTS 可复用
         GC.KeepAlive(proc);
         // WS_OVERLAPPED 仅作占位：不显示、不进任务栏
-        return CreateWindowExW(0, "TaoSearchTrayWnd", "", 0, 0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero,
-            Marshal.GetHINSTANCE(typeof(TrayIconService).Module), IntPtr.Zero);
+        var hwnd = CreateWindowExW(0, "TaoSearchTrayWnd", "", 0, 0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero,
+            hInst, IntPtr.Zero);
+        if (hwnd == IntPtr.Zero)
+            Console.Error.WriteLine($"[tray] CreateWindowExW failed gle={Marshal.GetLastWin32Error()}");
+        return hwnd;
     }
 }
