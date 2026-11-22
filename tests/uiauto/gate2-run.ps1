@@ -287,10 +287,16 @@ if ($win) {
             (New-Object System.Windows.Automation.PropertyCondition(
                 [System.Windows.Automation.AutomationElement]::ClassNameProperty, 'Shell_TrayWnd')))
         if ($taskbar) {
+            # 收窄到通知区 TrayNotifyWnd，排除主窗任务栏按钮误匹配（v3 修正）
+            $notify = $taskbar.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ClassNameProperty, 'TrayNotifyWnd')))
+            $scopeEl = if ($notify) { $notify } else { $taskbar }
+            if (-not $notify) { Log '  未定位到 TrayNotifyWnd，退回全任务栏搜索' }
             $btnCond2 = New-Object System.Windows.Automation.PropertyCondition(
                 [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
                 [System.Windows.Automation.ControlType]::Button)
-            $btns = $taskbar.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond2)
+            $btns = $scopeEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond2)
             foreach ($b in $btns) {
                 if ("$($b.Current.Name)" -like '*TaoSearch*') { $trayFound = $true; break }
             }
@@ -323,10 +329,29 @@ if ($win) {
     try {
         if (-not ('G2Tray.Native' -as [type])) {
             Add-Type -Namespace G2Tray -Name Native -MemberDefinition '
-[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
-[DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wp, IntPtr lp);'
+[DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wp, IntPtr lp);
+public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+[DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassNameW(IntPtr hWnd, System.Text.StringBuilder sb, int max);
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+public static System.Collections.Generic.List<string> ListWindows(uint pid) {
+    var list = new System.Collections.Generic.List<string>();
+    EnumWindows(delegate(IntPtr h, IntPtr l) {
+        var sb = new System.Text.StringBuilder(256);
+        GetClassNameW(h, sb, 256);
+        uint p; GetWindowThreadProcessId(h, out p);
+        if (p == pid) list.Add(sb.ToString() + "|" + h.ToString());
+        return true;
+    }, IntPtr.Zero);
+    return list;
+}'
         }
-        $trayHwnd = [G2Tray.Native]::FindWindowW('TaoSearchTrayWnd', $null)
+        $wins = [G2Tray.Native]::ListWindows([uint32]$app.Id)
+        Log ("  壳层顶层窗口类: " + ($wins -join ' , '))
+        $trayHwnd = [IntPtr]::Zero
+        foreach ($w in $wins) {
+            if ($w.StartsWith('TaoSearchTrayWnd|')) { $trayHwnd = [IntPtr][long]$w.Split('|')[1] }
+        }
         Check 'G2-20' '托盘隐藏消息窗存在（TaoSearchTrayWnd）' ($trayHwnd -ne [IntPtr]::Zero) $true
         if ($trayHwnd -ne [IntPtr]::Zero) {
             # 第一步：关主窗 → 最小化进托盘（进程必须存活）

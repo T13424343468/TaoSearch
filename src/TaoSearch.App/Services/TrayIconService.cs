@@ -40,7 +40,11 @@ public sealed class TrayIconService : IDisposable
 
             _proc = WndProc;
             _hwnd = CreateHiddenWindow(_proc);
-            if (_hwnd == IntPtr.Zero) return;
+            if (_hwnd == IntPtr.Zero)
+            {
+                Console.Error.WriteLine($"[tray] CreateHiddenWindow failed gle={Marshal.GetLastWin32Error()}");
+                return;
+            }
 
             var nid = new NOTIFYICONDATA
             {
@@ -54,10 +58,13 @@ public sealed class TrayIconService : IDisposable
                 szInfo = "",
             };
             _created = Shell_NotifyIcon(NIM_ADD, ref nid);
+            if (!_created)
+                Console.Error.WriteLine($"[tray] NIM_ADD failed gle={Marshal.GetLastWin32Error()}");
         }
-        catch
+        catch (Exception ex)
         {
             // 托盘创建失败不阻断主流程
+            Console.Error.WriteLine($"[tray] Show exception: {ex.Message}");
         }
     }
 
