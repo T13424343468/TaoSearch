@@ -132,7 +132,7 @@ public sealed partial class SettingsPage : Page
     private async void OnCheckUpdate(object sender, RoutedEventArgs e)
     {
         // 更新服务尚未接入：如实告知版本与渠道，不伪造「已是最新」结论
-        await ShowDialog("检查更新", $"当前版本 0.1.0.6。更新检查服务将随正式安装器一同提供。");
+        await ShowDialog("检查更新", $"当前版本 0.1.0.7。更新检查服务将随正式安装器一同提供。");
     }
 
     private async Task ShowDialog(string title, string content)

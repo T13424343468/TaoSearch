@@ -2,8 +2,8 @@
   <PropertyGroup>
     <RootNamespace>TaoSearch.Service</RootNamespace>
     <OutputType>Exe</OutputType>
-    <Version>0.1.0.6</Version>
-    <FileVersion>0.1.0.6</FileVersion>
+    <Version>0.1.0.7</Version>
+    <FileVersion>0.1.0.7</FileVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\TaoSearch.Kernel.Contracts\TaoSearch.Kernel.Contracts.csproj" />
