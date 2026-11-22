@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using TaoSearch.App.Services;
 using TaoSearch.Kernel.Contracts;
@@ -162,7 +162,9 @@ public sealed partial class OnboardingWindow : Window
 
     private void CloseAndShowMain()
     {
-        Close();
+        // 先显主窗再关引导窗（0.1.0.9 修：先关后开会触发 WinUI3「末窗关闭即退出」，
+        // 引导完成/跳过后进程静默退出、主窗不出现；云端 gate2 G2-15/G2-19 实证）
         App.Instance?.ShowMainWindow();
+        Close();
     }
 }
