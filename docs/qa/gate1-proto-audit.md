@@ -28,3 +28,16 @@
 
 - 按用户价值排序补齐：quick 窗+全局热键 → onboarding → 设置页缺项 → 主窗口状态与 chips/排序 → 跳转列表。
 - 每补一项即纳入关2 自动化用例清单，补完重跑关1 对照。
+
+## 处置回执（2026-11-22 产品页补齐班）
+
+| 不通过项 | 处置 | 落点 |
+|---|---|---|
+| quick 快速搜索窗整页 | **已补** | QuickSearchWindow.xaml/.cs：输入即搜（100ms 防抖、文件名路）、↑↓ 选择、Enter 打开、Ctrl+E 打开目录、Esc 隐藏、空态最近搜索（settings.json 持久化）、底部快捷键提示逐字对照原型 |
+| onboarding 首次引导整页 | **已补** | OnboardingWindow.xaml/.cs：欢迎→索引位置（D:\TaoSearch\Index / AppData）与范围三选→建索引进度（轮询 GetIndexStatus、MFT 直读文案、暂停/继续）→完成；文案逐字对照原型 |
+| 设置页缺项 7 项 | **已补 6 项** | SettingsPage：索引库位置更改（FolderPicker）/排除目录增删/内容索引优先级/启动时显示快速搜索窗/主题切换（水墨/墨白）/关于+检查更新（如实告知更新服务未接入，不伪造「已是最新」）；快捷键自定义按原型口径标注「当前版本固定」 |
+| 主窗口双标签+chips+排序/索引状态条/空态报错 | **已补** | MainWindow：文件名/内容双标签（单选互斥）、chips 全部/Markdown/文档/表格/代码、排序 ComboBox 五项、索引状态条（就绪/建索引中+文件数）、空态（准备好了/未找到/内容未找到）与报错横幅 |
+| 全局快捷键 Alt+Q | **已补** | GlobalHotkeyService：后台线程 message-only 窗口 RegisterHotKey，WM_HOTKEY 经 DispatcherQueue 回 UI 线程；Ctrl+Shift+S 未做（原型主入口为 Alt+Q） |
+| 任务栏跳转列表 | **未做** | 留待下一班（JumpList 需 MSIX 口径核对） |
+
+编译验证：windows-ci 561337f 全绿（WinUI3 XAML 编译含壳层，零错）。修正记录：RaiseEvent→直调、Window.Hide→AppWindow.Hide、IsAlwaysOnTop→OverlappedPresenter、CI 补 -p:Platform=x64。
