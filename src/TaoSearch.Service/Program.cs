@@ -67,38 +67,90 @@ public static class ServiceHostFactory
         string ftSnapshot = Path.Combine(dataDir, "fulltext.snap");
         string ftJournal = Path.Combine(dataDir, "fulltext.journal");
 
-        // 文件名索引：快照+journal 恢复优先，缺失走首建（MFT 失败自动降级慢路径）
+        // 文件名索引：快照+journal 恢复优先，缺失或损坏走首建（关7口径：磁盘损坏/升级残留不得致命）
         FsIndexEngine fs;
+        NameIndex? restoredIndex = null;
         if (File.Exists(fsSnapshot))
         {
-            NameIndex restoredIndex;
-            using (var snapStream = new FileStream(fsSnapshot, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                restoredIndex = NameIndex.LoadSnapshot(snapStream);
+            try
+            {
+                using (var snapStream = new FileStream(fsSnapshot, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    restoredIndex = NameIndex.LoadSnapshot(snapStream);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+            {
+                restoredIndex = null;
+                Console.WriteLine($"文件名快照不可用（{ex.Message}），降级全量首建");
+            }
+        }
+        if (restoredIndex is not null)
+        {
             fs = new FsIndexEngine(restoredIndex);
             var restore = IndexPersistence.Restore(fsSnapshot, fsJournal, volumeRoot, fs);
             Console.WriteLine($"文件名索引已恢复：{restore.FileCount} 文件（journal {restore.JournalFramesApplied} 帧）");
+
+            // 关7实弹实证：恢复路径从不落快照 → journal 永不轮转，每次重启重放全部历史帧。
+            // 重放已完成，此刻挂 sink 不会双写；落 checkpoint 顺带轮转 journal，重启增量重放。
+            // 只读盘/满盘（关7阶段4）落盘失败只降级不致命：内存索引照常服务。
+            var restoreSink = new JournalSink(fsJournal);
+            fs.JournalSink = restoreSink;
+            try
+            {
+                var restoreCp = IndexPersistence.SaveCheckpoint(fs, fsSnapshot, restoreSink);
+                Console.WriteLine($"恢复后快照已落盘：{restoreCp.FileCount} 文件（{restoreCp.SnapshotBytes} B，轮转 {restoreCp.JournalDiscardedBytes} B）");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Console.WriteLine($"恢复后快照落盘失败（只读/满盘？），降级为内存服务: {ex.Message}");
+            }
         }
         else
         {
-            fs = new FsIndexEngine(journalSink: new JournalSink(fsJournal));
+            var sink = new JournalSink(fsJournal);
+            fs = new FsIndexEngine(journalSink: sink);
             await fs.BuildAsync(volumeRoot, ct);
             Console.WriteLine($"文件名索引首建完成：{fs.Snapshot().FileCount} 文件（降级慢路径={fs.Snapshot().UsedFallback}）");
+
+            // 关7实弹实证：首建后从不落快照 → 真机每次重启全量重建（真实盘几十万文件=分钟级冷启动）。
+            // 满盘/只读（关7口径）落盘失败只降级不致命。
+            try
+            {
+                var cp = IndexPersistence.SaveCheckpoint(fs, fsSnapshot, sink);
+                Console.WriteLine($"首建快照已落盘：{cp.FileCount} 文件（{cp.SnapshotBytes} B，{cp.ElapsedMilliseconds} ms）");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Console.WriteLine($"首建快照落盘失败（只读/满盘？），降级为内存服务: {ex.Message}");
+            }
         }
 
-        // 全文索引：快照+journal 恢复优先，缺失从空索引起（内容由事件管线增量补齐）
+        // 全文索引：快照+journal 恢复优先，缺失或损坏从空索引起（内容由事件管线增量补齐）
         var fullText = new InvertedIndex();
         bool fullTextFresh = !File.Exists(ftSnapshot);
         if (!fullTextFresh)
         {
-            using var journalStream = new FileStream(ftJournal, FileMode.OpenOrCreate, FileAccess.Read, FileShare.Read);
-            var (index, frames, _) = FullTextPersistence.Restore(ftSnapshot, journalStream);
-            fullText = index;
-            Console.WriteLine($"全文索引已恢复：{index.DocCount} 文档（journal {frames} 帧）");
+            try
+            {
+                using var journalStream = new FileStream(ftJournal, FileMode.OpenOrCreate, FileAccess.Read, FileShare.Read);
+                var (index, frames, _) = FullTextPersistence.Restore(ftSnapshot, journalStream);
+                fullText = index;
+                Console.WriteLine($"全文索引已恢复：{index.DocCount} 文档（journal {frames} 帧）");
+            }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+            {
+                fullText = new InvertedIndex();
+                fullTextFresh = true;
+                Console.WriteLine($"全文快照不可用（{ex.Message}），降级重建");
+            }
         }
 
-        var content = new ContentIndexer(fullText);
+        // 全文 journal 生命周期流（关7口径）：事件先写日志后进索引，强杀后重放不丢；
+        // 恢复失败降级重建时日志作废清零，避免旧帧污染新索引。
+        if (fullTextFresh && File.Exists(ftJournal)) File.Delete(ftJournal);
+        var ftLifetimeJournal = new FileStream(ftJournal, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+        var content = new ContentIndexer(fullText, journal: ftLifetimeJournal);
 
-        var host = new ServiceHost(fs, fullText, content, volumeRoot);
+        var host = new ServiceHost(fs, fullText, content, volumeRoot, dataDir);
 
         // 存量内容补齐（关3实弹实证缺陷）：内容管线只吃事件流，USN 不重放历史，
         // 全文快照缺失（首建）时存量文件内容永远不进倒排 → 全文搜索对存量恒空。
@@ -110,7 +162,9 @@ public static class ServiceHostFactory
                 try
                 {
                     content.Rebuild(fs.EnumerateLivePaths(), CancellationToken.None);
-                    Console.WriteLine("内容索引存量补齐：已全量入队内容管线");
+                    // 补齐完成即落检查点（关7口径）：强杀后重启不再全量重扫全文
+                    content.SaveCheckpoint(ftSnapshot);
+                    Console.WriteLine("内容索引存量补齐完成，全文快照已落盘");
                 }
                 catch (Exception ex) { Console.WriteLine($"内容索引存量补齐失败: {ex.Message}"); }
             });

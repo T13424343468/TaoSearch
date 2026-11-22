@@ -13,15 +13,16 @@ using TaoSearch.Kernel.Contracts;
 const string PipeName = "taosearch.svc.1";
 const ushort ProtocolVersion = 1;
 
-if (args.Length == 0 || args[0] != "verify") { Console.Error.WriteLine("用法: verify --label <名> [--expect-files N]"); return 2; }
+if (args.Length == 0 || args[0] != "verify") { Console.Error.WriteLine("用法: verify --label <名> [--expect-files N] [--rebuild]"); return 2; }
 
-string label = "未命名"; int? expectFiles = null;
-for (int i = 1; i + 1 < args.Length; i += 2)
+string label = "未命名"; int? expectFiles = null; bool rebuild = false;
+for (int i = 1; i < args.Length; i++)
 {
     switch (args[i])
     {
-        case "--label": label = args[i + 1]; break;
-        case "--expect-files" when int.TryParse(args[i + 1], out var n): expectFiles = n; break;
+        case "--label" when i + 1 < args.Length: label = args[++i]; break;
+        case "--expect-files" when i + 1 < args.Length && int.TryParse(args[i + 1], out var n): expectFiles = n; i++; break;
+        case "--rebuild": rebuild = true; break;
     }
 }
 
@@ -79,6 +80,13 @@ async Task ReadExactlyAsync(byte[] buffer, CancellationToken ct)
 }
 
 // 索引就绪等待（重建可能耗时，上限 120s）
+if (rebuild)
+{
+    // 语料消失口径：触发真实重建（服务端先清后建），状态等待循环会等到重建完成
+    var ack = await CallAsync<AckResponse>(3, new RebuildRequest { Scope = QueryScope.Filename | QueryScope.Content });
+    Check($"G7[{label}]-rebuild", $"重建指令 ACK={ack.Ok}", ack.Ok);
+}
+
 IndexStatus status;
 var waitSw = Stopwatch.StartNew();
 while (true)

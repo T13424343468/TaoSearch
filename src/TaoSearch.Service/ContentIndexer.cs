@@ -34,6 +34,7 @@ public sealed class ContentIndexer : IDisposable
 
     private readonly InvertedIndex _index;
     private readonly ParserRegistry _parsers;
+    private readonly Stream? _journal;
     private readonly Channel<FileEvent> _queue = Channel.CreateBounded<FileEvent>(new BoundedChannelOptions(QueueCapacity)
     {
         SingleReader = true,
@@ -45,10 +46,12 @@ public sealed class ContentIndexer : IDisposable
     private volatile bool _paused;
     private int _pending;
 
-    public ContentIndexer(InvertedIndex index, ParserRegistry? parsers = null)
+    /// <param name="journal">全文增量日志流（可选）：先写后应用口径，强杀后重放不丢事件；空则不落日志（纯内存索引）。</param>
+    public ContentIndexer(InvertedIndex index, ParserRegistry? parsers = null, Stream? journal = null)
     {
         _index = index;
         _parsers = parsers ?? new ParserRegistry();
+        _journal = journal;
         _ = Task.Run(() => RunAsync(_cts.Token));
     }
 
@@ -76,6 +79,33 @@ public sealed class ContentIndexer : IDisposable
 
     /// <summary>待处理事件数（壳层设置页与 IPC GetIndexStatus 用）。</summary>
     public int PendingCount => Volatile.Read(ref _pending);
+
+    /// <summary>
+    /// 全文检查点（关7口径）：暂停消费 → 排空队列 → 快照原子替换 + journal 轮转（FullTextPersistence 口径）→ 恢复消费。
+    /// 暂停窗口内消费循环停在事件边界，快照与日志轮转无并发写竞争。
+    /// </summary>
+    public void SaveCheckpoint(string snapshotPath)
+    {
+        if (_journal is null) return;
+        Pause();
+        try
+        {
+            while (Volatile.Read(ref _pending) > 0) Thread.Sleep(50);
+            FullTextPersistence.SaveCheckpoint(_index, snapshotPath, _journal);
+        }
+        finally
+        {
+            Resume();
+        }
+    }
+
+    /// <summary>全文日志追加（先写后应用）：失败只记失败清单，不阻断索引（日志缺口由下次检查点兜底）。</summary>
+    private void AppendJournal(FullTextEvent e)
+    {
+        if (_journal is null) return;
+        try { FullTextJournal.Append(_journal, e); }
+        catch (Exception ex) { RecordFailed(e.Text ?? "(删除)", ex); }
+    }
 
     /// <summary>内容索引就绪口径：队列已清空且未暂停（重建完成后同样成立）。</summary>
     public bool IsReady => !_paused && PendingCount == 0;
@@ -135,6 +165,7 @@ public sealed class ContentIndexer : IDisposable
         if (e.Kind == FileChangeKind.Deleted)
         {
             _index.RemoveDocument(e.FileReference);
+            AppendJournal(new FullTextEvent(e.FileReference, null, default));
             return;
         }
         if (e.Kind == FileChangeKind.Renamed) return; // docId 不变，内容索引仍有效
@@ -159,6 +190,7 @@ public sealed class ContentIndexer : IDisposable
         catch (Exception ex) { RecordFailed(path, ex); return; }
 
         _index.AddDocument(fileRef, text, modifiedUtc);
+        AppendJournal(new FullTextEvent(fileRef, text, modifiedUtc));
     }
 
     private void RecordFailed(string path, Exception ex)

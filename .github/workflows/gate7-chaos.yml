@@ -46,9 +46,9 @@ jobs:
             Get-Process TaoSearch.Service -ErrorAction SilentlyContinue | Stop-Process -Force
             Start-Sleep -Seconds 1
           }
-          function Test-Phase([string]$label, [int]$expectFiles) {
+          function Test-Phase([string]$label, [int]$expectFiles, [switch]$Rebuild) {
             Start-Svc
-            dotnet tests/Gate7Chaos/bin/Release/net10.0/Gate7Chaos.dll verify --label $label --expect-files $expectFiles
+            dotnet tests/Gate7Chaos/bin/Release/net10.0/Gate7Chaos.dll verify --label $label --expect-files $expectFiles $(if ($Rebuild) { "--rebuild" })
             if ($LASTEXITCODE -ne 0) { Write-Host "--- service.log ($label) ---"; Get-Content "$PWD/service.log" -ErrorAction SilentlyContinue; Write-Host "--- service.err.log ---"; Get-Content "$PWD/service.err.log" -ErrorAction SilentlyContinue }
             Stop-Svc
             if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -85,7 +85,7 @@ jobs:
 
           # 阶段5：语料文件消失（删 100 个 content 文件后重建索引口径）
           Get-ChildItem "$PWD/qa-corpus" -Recurse -Filter "content-*.txt" | Select-Object -First 100 | Remove-Item -Force
-          Test-Phase "语料消失100" 153
+          Test-Phase "语料消失100" 153 -Rebuild
 
           # 终验：干净重启基线
           Test-Phase "终验基线" 153

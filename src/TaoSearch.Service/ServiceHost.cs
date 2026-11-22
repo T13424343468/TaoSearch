@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using TaoSearch.Kernel.Contracts;
 using TaoSearch.Kernel.FsIndex;
 using TaoSearch.Kernel.FullText;
+using TaoSearch.Kernel.Store;
 
 namespace TaoSearch.Service;
 
@@ -42,16 +43,18 @@ public sealed class ServiceHost
     private readonly SearchEngine _engine;
     private readonly ParserRegistry _parsers = new();
     private readonly string _volumeRoot;
+    private readonly string _dataDir;
     private readonly ConcurrentDictionary<Guid, Subscription> _subscriptions = new();
 
     private sealed record Subscription(Guid Id, FileEventFilter Filter, Func<byte[], ValueTask> PushAsync);
 
-    public ServiceHost(FsIndexEngine fs, InvertedIndex fullText, ContentIndexer content, string volumeRoot)
+    public ServiceHost(FsIndexEngine fs, InvertedIndex fullText, ContentIndexer content, string volumeRoot, string? dataDir = null)
     {
         _fs = fs;
         _fullText = fullText;
         _content = content;
         _volumeRoot = volumeRoot;
+        _dataDir = dataDir ?? string.Empty;
         _engine = new SearchEngine(fs, fullText);
     }
 
@@ -179,11 +182,37 @@ public sealed class ServiceHost
     {
         if (request.Scope.HasFlag(QueryScope.Filename))
         {
+            // 关7口径：重建必须先清后建——停机期删除的文件不得残留（BuildAsync 只 Upsert 不清）
+            _fs.Clear();
             await _fs.BuildAsync(_volumeRoot, ct).ConfigureAwait(false);
+
+            // 重建后落检查点：下次启动直接恢复新状态，不回跳旧快照
+            if (!string.IsNullOrEmpty(_dataDir))
+            {
+                try
+                {
+                    // 检查点需要具体 JournalSink（轮转语义）；恢复路径引擎可能只挂了接口，这里补挂具体实现
+                    if (_fs.JournalSink is not JournalSink concreteSink)
+                    {
+                        concreteSink = new JournalSink(Path.Combine(_dataDir, "fs.journal"));
+                        _fs.JournalSink = concreteSink;
+                    }
+                    var cp = IndexPersistence.SaveCheckpoint(_fs, Path.Combine(_dataDir, "fs.snap"), concreteSink);
+                    Console.WriteLine($"重建检查点已落盘：{cp.FileCount} 文件（{cp.SnapshotBytes} B，{cp.ElapsedMilliseconds} ms）");
+                }
+                catch (Exception ex) { Console.WriteLine($"重建检查点落盘失败（不阻断）: {ex.Message}"); }
+            }
         }
         if (request.Scope.HasFlag(QueryScope.Content))
         {
             await Task.Run(() => _content.Rebuild(_fs.EnumerateLivePaths(), ct), ct).ConfigureAwait(false);
+
+            // 全文重建完成后同样落检查点（排空由 SaveCheckpoint 内部暂停窗口保证）
+            if (!string.IsNullOrEmpty(_dataDir))
+            {
+                try { _content.SaveCheckpoint(Path.Combine(_dataDir, "fulltext.snap")); }
+                catch (Exception ex) { Console.WriteLine($"全文重建检查点落盘失败（不阻断）: {ex.Message}"); }
+            }
         }
     }
 

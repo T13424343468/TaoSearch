@@ -107,6 +107,24 @@ public sealed partial class NameIndex : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// 清空索引（重建口径）：哈希槽全部置空、记录与聚合区游标归零，已分配内存保留复用。
+    /// 关7实弹口径：停机期删除的文件重建后不得残留——重建必须先清后建，反映磁盘现状。
+    /// </summary>
+    public unsafe void Clear()
+    {
+        ThrowIfDisposed();
+        int capacity = _hashMask + 1;
+        for (int i = 0; i < capacity; i++)
+        {
+            _keys[i] = 0;
+            _values[i] = -1;
+        }
+        _namesUsed = 0;
+        _recordCount = 0;
+        _count = 0;
+    }
+
     /// <summary>按父引用号链向上重建完整路径（架构 §4.2：不存全路径）。深度上限防环。</summary>
     public unsafe string BuildPath(long fileReference)
     {

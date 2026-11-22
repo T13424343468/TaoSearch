@@ -68,6 +68,19 @@ public sealed class FsIndexEngine : IDisposable
         _index = restoredIndex;
     }
 
+    /// <summary>
+    /// 清空索引（重建口径）：先清后建，保证重建反映磁盘现状（关7实弹：停机期删除的文件重建后不得残留）。
+    /// 清空后 Ready 置否，由随后的 BuildAsync 重新就绪。
+    /// </summary>
+    public void Clear()
+    {
+        lock (_gate)
+        {
+            _index.Clear();
+            _ready = false;
+        }
+    }
+
     /// <summary>首建：MFT 全量枚举入索引；失败（权限不足等）降级慢路径。完成后状态 Ready。</summary>
     public async Task<FsIndexBuildResult> BuildAsync(string volumeRoot, CancellationToken ct = default)
     {
