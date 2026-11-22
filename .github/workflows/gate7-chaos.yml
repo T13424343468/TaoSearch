@@ -24,7 +24,7 @@ jobs:
       - name: 发布服务 + 编译关7装置与关3语料器
         shell: pwsh
         run: |
-          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -f net10.0-windows -r win-x64 --self-contained false -o publish --nologo
           dotnet build tests/Gate7Chaos/Gate7Chaos.csproj -c Release --nologo
           dotnet build tests/Gate3Harness/Gate3Harness.csproj -c Release --nologo
 

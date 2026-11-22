@@ -6,8 +6,8 @@ using TaoSearch.Kernel.Contracts;
 namespace TaoSearch.App;
 
 /// <summary>
-/// 首次使用引导：欢迎 → 索引位置与范围 → 建索引进度（MFT 直读、可暂停）→ 完成。
-/// 文案对照原型 onboarding 页逐字落实。
+/// 首次使用引导：欢迎 → 索引位置与范围 → 建索引进度（真实口径、可暂停）→ 完成。
+/// 文案对照原型 onboarding 页逐字落实；0.1.0.9：居中、置顶、真实进度、暂停失败显式提示。
 /// </summary>
 public sealed partial class OnboardingWindow : Window
 {
@@ -27,7 +27,24 @@ public sealed partial class OnboardingWindow : Window
             if (System.IO.File.Exists(iconPath)) AppWindow.SetIcon(iconPath);
         }
         catch { /* 图标缺失不阻断 */ }
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(760, 560));
+        WindowPlacement.CenterOnScreen(this, 760, 560, topMost: true);
+        UpdateMethodText();
+    }
+
+    /// <summary>方式文案按真实权限口径（0.1.0.9）：无管理员权限不再宣称 MFT 直读。</summary>
+    private void UpdateMethodText()
+    {
+        bool isAdmin;
+        try
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            isAdmin = new System.Security.Principal.WindowsPrincipal(identity)
+                .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        }
+        catch { isAdmin = false; }
+        MethodText.Text = isAdmin
+            ? "MFT 直读（NTFS 主文件表）"
+            : "目录扫描（未以管理员身份运行，速度较慢）";
     }
 
     private void SetStep(int step)
@@ -71,20 +88,18 @@ public sealed partial class OnboardingWindow : Window
             var ack = await _gateway.RebuildAsync(QueryScope.Filename | QueryScope.Content);
             if (!ack.Ok)
             {
-                DoneNote.Text = $"索引服务未响应：{ack.Error}。文件名搜索将在服务可用后自动开始。";
+                DoneNote.Text = "索引服务未响应，文件名搜索将在服务可用后自动开始。";
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            // 真机口径：服务自动拉起后首次建索引期间管道未监听（先建后听），超时属预期，轮询会接续
-            DoneNote.Text = ex.Message.Contains("timed out") || ex.Message.Contains("超时")
-                ? "索引服务已启动，正在首次建立索引（仅一次，视文件数量需几分钟），完成后自动开始。"
-                : $"索引服务未连接：{ex.Message}。文件名搜索将在服务可用后自动开始。";
+            // 文案中文化（0.1.0.9）：不透传英文异常；轮询会接续，就绪后自动出「完成」
+            DoneNote.Text = "索引服务已启动，正在首次建立索引（仅一次，视文件数量需几分钟），完成后自动开始。";
         }
         StartPolling();
     }
 
-    /// <summary>轮询索引状态：进度条按文件数/百万估算，就绪即出「完成」。</summary>
+    /// <summary>轮询索引状态：就绪前不确定进度（不虚构百分比），就绪即出「完成」。</summary>
     private void StartPolling()
     {
         _pollCts = new CancellationTokenSource();
@@ -98,13 +113,13 @@ public sealed partial class OnboardingWindow : Window
             try
             {
                 var status = await _gateway.GetIndexStatusAsync(ct);
-                double pct = Math.Min(95, status.FileCount / 1_048_576.0 * 100);
-                if (status.FilenameIndexReady) pct = 100;
-                IndexProgress.Value = pct;
-                ProgressCount.Text = $"{status.FileCount:N0} 个文件";
-                ProgressPct.Text = $"{pct:0}%";
+                ProgressCount.Text = status.FilenameIndexReady
+                    ? $"索引建立完成，共 {status.FileCount:N0} 个文件"
+                    : $"已收录 {status.FileCount:N0} 个文件，仍在继续…";
                 if (status.FilenameIndexReady)
                 {
+                    IndexProgress.IsIndeterminate = false;
+                    IndexProgress.Value = 100;
                     DoneNote.Text = "索引建立完成。文件名搜索已可用，内容索引转入后台低优先级构建。";
                     PauseButton.Visibility = Visibility.Collapsed;
                     FinishButton.Visibility = Visibility.Visible;
@@ -127,8 +142,16 @@ public sealed partial class OnboardingWindow : Window
                 _paused = !_paused;
                 PauseButton.Content = _paused ? "继续" : "暂停";
             }
+            else
+            {
+                // 失败显式提示（0.1.0.9：不再静默）
+                DoneNote.Text = "暂停未成功：索引服务暂时不可用，稍后再试。";
+            }
         }
-        catch { /* 服务未连接静默，真机验收补提示 */ }
+        catch
+        {
+            DoneNote.Text = "暂停未成功：索引服务未连接，稍后再试。";
+        }
     }
 
     private void OnFinish(object sender, RoutedEventArgs e)

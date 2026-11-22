@@ -25,7 +25,7 @@ jobs:
       - name: 发布服务与壳层（框架依赖 + WinAppSDK 自包含）
         shell: pwsh
         run: |
-          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -f net10.0-windows -r win-x64 --self-contained false -o publish --nologo
           dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
           Get-ChildItem publish/TaoSearch.*.exe | ForEach-Object { Write-Host $_.Name }
 

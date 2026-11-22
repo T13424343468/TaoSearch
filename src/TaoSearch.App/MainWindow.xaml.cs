@@ -6,12 +6,14 @@ using TaoSearch.App.ViewModels;
 
 namespace TaoSearch.App;
 
-/// <summary>主窗：文件名/内容双标签、筛选 chips、排序、空态/报错、索引状态条、底部导航。</summary>
+/// <summary>主窗：文件名/内容双标签、筛选 chips、排序、空态/报错、索引状态条、底部导航、托盘常驻。</summary>
 public sealed partial class MainWindow : Window
 {
     private readonly SearchGateway _gateway = new();
     public MainViewModel ViewModel { get; }
     public SettingsViewModel SettingsViewModel { get; }
+
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer? _statusTimer;
 
     public MainWindow()
     {
@@ -29,6 +31,20 @@ public sealed partial class MainWindow : Window
         }
         catch { /* 图标缺失不阻断启动 */ }
 
+        WindowPlacement.CenterOnScreen(this, 960, 680);
+
+        // 关窗缩托盘（常驻口径）：点 × 隐藏窗口，退出走托盘菜单
+        AppWindow.Closing += (sender, args) =>
+        {
+            if (App.Instance is { } app && app.SuppressCloseToTrayOnce)
+            {
+                app.SuppressCloseToTrayOnce = false;
+                return; // 托盘「退出」触发的真关闭放行
+            }
+            args.Cancel = true;
+            AppWindow.Hide();
+        };
+
         // x:Bind 在 Window 根不可用（生成代码要求 FrameworkElement），改 code-behind 接线
         StatusText.Text = ViewModel.StatusText;
         ViewModel.PropertyChanged += (_, e) =>
@@ -43,6 +59,12 @@ public sealed partial class MainWindow : Window
         UpdateEmptyState();
 
         _ = RefreshIndexStatusAsync();
+
+        // 索引状态条自动刷新（0.1.0.9）：不再只在构造时取一次
+        _statusTimer = DispatcherQueue.CreateTimer();
+        _statusTimer.Interval = TimeSpan.FromSeconds(5);
+        _statusTimer.Tick += (_, _) => _ = RefreshIndexStatusAsync();
+        _statusTimer.Start();
     }
 
     // —— 双标签：文件名 / 内容（单选互斥） ——
@@ -111,26 +133,33 @@ public sealed partial class MainWindow : Window
             {
                 case "content":
                     // 内容搜索与文件名搜索共用主窗口，通过上方标签页切换（原型口径）
-                    OverlayHost.Visibility = Visibility.Collapsed;
+                    ShowResults();
                     SelectTab(TabContent);
                     break;
                 case "settings":
                     OverlayHost.Content = new SettingsPage { ViewModel = SettingsViewModel };
                     OverlayHost.Visibility = Visibility.Visible;
+                    ResultsHost.Visibility = Visibility.Collapsed;
                     break;
                 default:
-                    OverlayHost.Visibility = Visibility.Collapsed;
+                    ShowResults();
                     break;
             }
         }
     }
 
-    // —— 空态与报错（六.2 负阴抱阳） ——
+    private void ShowResults()
+    {
+        OverlayHost.Visibility = Visibility.Collapsed;
+        ResultsHost.Visibility = Visibility.Visible;
+    }
+
+    // —— 空态与报错（六.2 负阴抱阳；错误与空态互斥） ——
     private void UpdateEmptyState()
     {
-        ErrorBanner.Visibility = ViewModel.StatusText.StartsWith("搜索出错", StringComparison.Ordinal)
-            ? Visibility.Visible : Visibility.Collapsed;
-        if (ErrorBanner.Visibility == Visibility.Visible)
+        bool hasError = ViewModel.StatusText.StartsWith("搜索出错", StringComparison.Ordinal);
+        ErrorBanner.Visibility = hasError ? Visibility.Visible : Visibility.Collapsed;
+        if (hasError)
             ErrorCause.Text = ViewModel.StatusText;
 
         if (ViewModel.Hits.Count > 0)
@@ -138,7 +167,9 @@ public sealed partial class MainWindow : Window
             EmptyPanel.Visibility = Visibility.Collapsed;
             return;
         }
-        EmptyPanel.Visibility = Visibility.Visible;
+        // 报错时不并排空态，避免「错误横幅 + 空态」同时出现
+        EmptyPanel.Visibility = hasError ? Visibility.Collapsed : Visibility.Visible;
+        if (hasError) return;
         if (string.IsNullOrWhiteSpace(ViewModel.Query))
         {
             EmptyIcon.Text = "🔍";

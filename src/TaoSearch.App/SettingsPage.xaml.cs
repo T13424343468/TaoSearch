@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using TaoSearch.App.Services;
@@ -10,10 +11,16 @@ public sealed partial class SettingsPage : Page
 {
     public SettingsViewModel ViewModel { get; set; } = default!;
 
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _refreshTimer;
+
+    /// <summary>关于行：版本号取自程序集（0.1.0.9：不再写死，随包自动更新）。</summary>
+    public string AboutLine { get; } = $"TaoSearch · 版本 {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.1.0"}";
+
     public SettingsPage()
     {
         InitializeComponent();
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -21,6 +28,8 @@ public sealed partial class SettingsPage : Page
         var settings = AppSettings.Instance;
         ExcludeList.ItemsSource = settings.ExcludedDirectories;
         QuickStartupToggle.IsOn = settings.ShowQuickOnStartup;
+        HotkeyToggle.IsOn = settings.QuickHotkeyEnabled;
+        UpdateHotkeyNote();
         (settings.IsDarkTheme ? ThemeMobai : ThemeShuimo).IsChecked = true;
         var priority = settings.ContentPriority switch
         {
@@ -29,10 +38,16 @@ public sealed partial class SettingsPage : Page
             _ => 0,
         };
         PriorityBox.SelectedIndex = priority;
+
+        // 进页自动加载 + 定时刷新（0.1.0.9）：状态不再非要手动点刷新
+        _ = ViewModel.RefreshAsync();
+        _refreshTimer = DispatcherQueue.CreateTimer();
+        _refreshTimer.Interval = TimeSpan.FromSeconds(5);
+        _refreshTimer.Tick += (_, _) => _ = ViewModel.RefreshAsync();
+        _refreshTimer.Start();
     }
 
-    private void OnRefresh(object sender, Microsoft.UI.Xaml.RoutedEventArgs e) =>
-        _ = ViewModel.RefreshAsync();
+    private void OnUnloaded(object sender, RoutedEventArgs e) => _refreshTimer?.Stop();
 
     private async void OnRebuild(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
@@ -60,9 +75,10 @@ public sealed partial class SettingsPage : Page
             AppSettings.Instance.IndexLocation = folder.Path;
             AppSettings.Instance.Save();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            await ShowDialog("更改索引库位置", $"未能打开文件夹选择器：{ex.Message}");
+            // 文案中文化（0.1.0.9）：不透传英文异常
+            await ShowDialog("更改索引库位置", "未能打开文件夹选择器，请重试。");
         }
     }
 
@@ -123,6 +139,22 @@ public sealed partial class SettingsPage : Page
         AppSettings.Instance.Save();
     }
 
+    // —— 全局热键开关（0.1.0.9：即时生效 + 结果反馈） ——
+    private void OnHotkeyToggled(object sender, RoutedEventArgs e)
+    {
+        AppSettings.Instance.QuickHotkeyEnabled = HotkeyToggle.IsOn;
+        AppSettings.Instance.Save();
+        App.Instance?.ReRegisterHotkey();
+        UpdateHotkeyNote();
+    }
+
+    private void UpdateHotkeyNote()
+    {
+        HotkeyNote.Text = AppSettings.Instance.QuickHotkeyEnabled
+            ? "已开启。若注册失败（快捷键被占用），启动或开启时会弹窗提示。"
+            : "已关闭。可从任务栏托盘或主窗打开快速搜索窗。";
+    }
+
     private void OnStartupToggled(object sender, RoutedEventArgs e)
     {
         // MSIX StartupTask：清单声明 + RequestEnabledAsync，真机验收项
@@ -132,7 +164,7 @@ public sealed partial class SettingsPage : Page
     private async void OnCheckUpdate(object sender, RoutedEventArgs e)
     {
         // 更新服务尚未接入：如实告知版本与渠道，不伪造「已是最新」结论
-        await ShowDialog("检查更新", $"当前版本 0.1.0.8。更新检查服务将随正式安装器一同提供。");
+        await ShowDialog("检查更新", $"当前版本 {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.1.0"}。更新检查服务将随正式安装器一同提供。");
     }
 
     private async Task ShowDialog(string title, string content)

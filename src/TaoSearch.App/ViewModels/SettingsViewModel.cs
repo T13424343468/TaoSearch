@@ -14,21 +14,21 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public ObservableCollection<KeyValuePair<string, string>> IndexInfo { get; } = [];
 
-    private string _fileCount = "—";
+    private string _fileCount = "获取中…";
     public string FileCount
     {
         get => _fileCount;
         private set { _fileCount = value; PropertyChanged?.Invoke(this, new(nameof(FileCount))); }
     }
 
-    private string _indexState = "—";
+    private string _indexState = "获取中…";
     public string IndexState
     {
         get => _indexState;
         private set { _indexState = value; PropertyChanged?.Invoke(this, new(nameof(IndexState))); }
     }
 
-    private string _pendingQueue = "—";
+    private string _pendingQueue = "获取中…";
     public string PendingQueue
     {
         get => _pendingQueue;
@@ -62,24 +62,45 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             IndexState = status.FilenameIndexReady ? "就绪" : "建索引中";
             PendingQueue = status.PendingContentQueue.ToString("N0");
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            IndexState = $"服务未连接：{ex.Message}";
+            // 文案中文化（0.1.0.9）：不展示原始英文异常
+            IndexState = "服务未连接";
+            FileCount = "—";
+            PendingQueue = "—";
         }
     }
 
     public async Task<string> RebuildAsync()
     {
-        var ack = await _gateway.RebuildAsync(QueryScope.Filename | QueryScope.Content);
-        return ack.Ok ? "已开始重建索引" : $"重建失败：{ack.Error}";
+        try
+        {
+            var ack = await _gateway.RebuildAsync(QueryScope.Filename | QueryScope.Content);
+            return ack.Ok ? "已开始重建索引" : $"重建失败：{ErrorText(ack.Error)}";
+        }
+        catch (Exception)
+        {
+            return "重建失败：索引服务未连接，请确认服务已启动后重试。";
+        }
     }
 
     public async Task<string> TogglePauseAsync()
     {
-        var ack = Paused
-            ? await _gateway.ResumeAsync()
-            : await _gateway.PauseAsync();
-        if (ack.Ok) Paused = !Paused;
-        return ack.Ok ? (Paused ? "已暂停全文索引" : "已恢复全文索引") : $"操作失败：{ack.Error}";
+        try
+        {
+            var ack = Paused
+                ? await _gateway.ResumeAsync()
+                : await _gateway.PauseAsync();
+            if (ack.Ok) Paused = !Paused;
+            return ack.Ok ? (Paused ? "已暂停全文索引" : "已恢复全文索引") : $"操作失败：{ErrorText(ack.Error)}";
+        }
+        catch (Exception)
+        {
+            return "操作失败：索引服务未连接，请确认服务已启动后重试。";
+        }
     }
+
+    /// <summary>服务侧错误转中文提示（0.1.0.9）：不再透传英文原文。</summary>
+    private static string ErrorText(string? error) => string.IsNullOrWhiteSpace(error)
+        ? "未知错误" : "服务返回错误，请查看服务日志或重试。";
 }

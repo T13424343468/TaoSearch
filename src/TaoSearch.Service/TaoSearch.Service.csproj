@@ -2,9 +2,18 @@
   <PropertyGroup>
     <RootNamespace>TaoSearch.Service</RootNamespace>
     <OutputType>Exe</OutputType>
-    <Version>0.1.0.8</Version>
-    <FileVersion>0.1.0.8</FileVersion>
+    <Version>0.1.0.9</Version>
+    <FileVersion>0.1.0.9</FileVersion>
+    <!-- 多目标：net10.0 供沙箱/单元测试（纯托管核心），net10.0-windows 供真机服务壳（ServiceBase） -->
+    <TargetFrameworks>net10.0;net10.0-windows</TargetFrameworks>
+    <!-- Linux 沙箱交叉编译 Windows 目标所需 -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+    <!-- ServiceBase 所在程序包（.NET Core 起从 Windows 兼容包拆出） -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\TaoSearch.Kernel.Contracts\TaoSearch.Kernel.Contracts.csproj" />
     <ProjectReference Include="..\TaoSearch.Kernel.FsIndex\TaoSearch.Kernel.FsIndex.csproj" />

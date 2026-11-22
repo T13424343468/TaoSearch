@@ -22,7 +22,7 @@ jobs:
         shell: pwsh
         run: |
           $sw = [System.Diagnostics.Stopwatch]::StartNew()
-          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 `
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -f net10.0 -r win-x64 `
             -p:PublishAot=true -p:PublishSingleFile=true -o artifacts\nativeaot --nologo
           if ($LASTEXITCODE -ne 0) { Write-Host "::error::NativeAOT publish 失败（exit $LASTEXITCODE）"; exit 1 }
           $sw.Stop()

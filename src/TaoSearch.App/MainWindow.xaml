@@ -67,10 +67,9 @@
             <TextBlock x:Name="IndexStatusText" Grid.Column="1" Style="{StaticResource AuxText}" Text="索引状态：—" />
         </Grid>
 
-        <!-- 结果列表 / 空态 / 报错横幅 -->
-        <Grid Grid.Row="3" Margin="16,0,16,8">
-            <ScrollViewer>
-                <ListView x:Name="ResultList" SelectionChanged="OnResultSelected">
+        <!-- 结果列表 / 空态 / 报错横幅（ListView 自带滚动，不再外套 ScrollViewer 双滚动） -->
+        <Grid Grid.Row="3" Margin="16,0,16,8" x:Name="ResultsHost">
+            <ListView x:Name="ResultList" SelectionChanged="OnResultSelected">
                     <ListView.ItemTemplate>
                         <!-- Window 根不支持 x:Bind（生成代码要求 FrameworkElement），数据项经 DataContext 走经典 Binding -->
                         <DataTemplate>
@@ -96,8 +95,7 @@
                             </Border>
                         </DataTemplate>
                     </ListView.ItemTemplate>
-                </ListView>
-            </ScrollViewer>
+            </ListView>
 
             <!-- 空态（负阴抱阳：待输入 / 无结果） -->
             <StackPanel x:Name="EmptyPanel" VerticalAlignment="Center" Spacing="8" HorizontalAlignment="Center" Margin="32,0">
@@ -126,6 +124,7 @@
                 <NavigationViewItem Content="设置" Tag="settings" />
             </NavigationView.MenuItems>
         </NavigationView>
-        <ContentControl Grid.Row="4" x:Name="OverlayHost" Visibility="Collapsed" />
+        <!-- 设置页承载于结果区（Row 3）：不再与导航叠放，标题不再压页签、内容不再被窗口底边裁剪 -->
+        <ContentControl Grid.Row="3" x:Name="OverlayHost" Visibility="Collapsed" Margin="0,0,0,8" />
     </Grid>
 </Window>

@@ -1,4 +1,7 @@
 using System.IO.Pipes;
+#if WINDOWS
+using System.ServiceProcess;
+#endif
 using TaoSearch.Kernel.Contracts;
 using TaoSearch.Kernel.FsIndex;
 using TaoSearch.Kernel.FullText;
@@ -11,6 +14,8 @@ namespace TaoSearch.Service;
 /// 内核装配（文件名索引恢复/首建、全文快照恢复、内容管线、事件泵三路单源）。
 /// 数据目录口径：存储默认 D 盘（TAOSEARCH_DATA 可覆盖，测试注入临时目录）；
 /// D 盘不可用时降级 AppData（并行班设计，归并吸收）。
+/// 运行模式（0.1.0.9 装完即起令）：Windows 服务模式（SCM 拉起，安装器注册 TaoSearchService）
+/// 与控制台模式（云端测试/调试 Start-Process 直拉）共用同一运行核心。
 /// </summary>
 public static class Program
 {
@@ -19,12 +24,30 @@ public static class Program
 
     public static async Task Main(string[] args)
     {
+#if WINDOWS
+        // Windows 服务模式：SCM 拉起时 UserInteractive=false，或显式 --service；
+        // 控制台模式：Start-Process 直拉（UserInteractive=true），--console 可强制。
+        bool serviceMode = args.Contains("--service", StringComparer.OrdinalIgnoreCase)
+            || (!Environment.UserInteractive && !args.Contains("--console", StringComparer.OrdinalIgnoreCase));
+        if (serviceMode)
+        {
+            ServiceBase.Run(new TaoSearchWindowsService());
+            return;
+        }
+#endif
+
+        string volumeRoot = args.Length > 0 ? args[0]
+            : Environment.GetEnvironmentVariable("TAOSEARCH_VOLUME") ?? @"C:\";
+        await RunConsoleAsync(volumeRoot);
+    }
+
+    /// <summary>控制台模式（云端测试/调试）：互斥体 + 宿主 + 管道，Ctrl+C 退出。</summary>
+    internal static async Task RunConsoleAsync(string volumeRoot)
+    {
         if (!SingleInstance.WaitOne(0)) { Console.WriteLine("[svc] 单实例互斥体被占用，退出"); return; } // 单实例：重复启动直接退出
 
         Console.OutputEncoding = System.Text.Encoding.UTF8; // 重定向取证时中文不乱码
 
-        string volumeRoot = args.Length > 0 ? args[0]
-            : Environment.GetEnvironmentVariable("TAOSEARCH_VOLUME") ?? @"C:\";
         string dataDir = ResolveDataDir();
         Directory.CreateDirectory(dataDir);
 
@@ -37,6 +60,19 @@ public static class Program
 
         var server = new PipeServer(PipeName, host);
         await server.RunAsync(cts.Token);
+    }
+
+    /// <summary>Windows 服务模式：互斥体 + 宿主 + 管道；SCM 停止时经取消令牌收尾。</summary>
+    internal static async Task RunServiceCoreAsync(string volumeRoot, CancellationToken ct)
+    {
+        if (!SingleInstance.WaitOne(0)) return; // 单实例：已有实例（如调试控制台）在跑则让位
+
+        string dataDir = ResolveDataDir();
+        Directory.CreateDirectory(dataDir);
+
+        var host = await ServiceHostFactory.CreateAsync(volumeRoot, dataDir, ct);
+        var server = new PipeServer(PipeName, host);
+        await server.RunAsync(ct);
     }
 
     /// <summary>数据目录：存储默认 D 盘（用户拍板），不可用降级 AppData；TAOSEARCH_DATA 最高优先。</summary>
@@ -56,6 +92,45 @@ public static class Program
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TaoSearch", "Index");
     }
 }
+
+#if WINDOWS
+/// <summary>Windows 服务壳（0.1.0.9 装完即起令）：安装器注册为自动启动服务，开机即常驻，免日常提权。</summary>
+internal sealed class TaoSearchWindowsService : ServiceBase
+{
+    private readonly CancellationTokenSource _cts = new();
+    private Task? _runTask;
+
+    public TaoSearchWindowsService()
+    {
+        ServiceName = "TaoSearchService";
+        CanShutdown = true;
+    }
+
+    protected override void OnStart(string[] args)
+    {
+        // OnStart 须在 30s 内返回：运行核心转后台任务，管道先监听后建索引（先听后建）
+        var volume = Environment.GetEnvironmentVariable("TAOSEARCH_VOLUME") ?? @"C:\";
+        _runTask = Program.RunServiceCoreAsync(volume, _cts.Token);
+    }
+
+    protected override void OnStop()
+    {
+        try
+        {
+            _cts.Cancel();
+            _runTask?.Wait(TimeSpan.FromSeconds(10));
+        }
+        catch (AggregateException) { /* 取消引发的聚合异常属正常收尾 */ }
+        base.OnStop();
+    }
+
+    protected override void OnShutdown()
+    {
+        try { _cts.Cancel(); } catch (ObjectDisposedException) { }
+        base.OnShutdown();
+    }
+}
+#endif
 
 /// <summary>内核装配（可测试）：恢复优先，快照缺失走首建；事件泵单源三路（内核/内容/订阅）。</summary>
 public static class ServiceHostFactory
@@ -83,6 +158,10 @@ public static class ServiceHostFactory
                 Console.WriteLine($"文件名快照不可用（{ex.Message}），降级全量首建");
             }
         }
+
+        // 先听后建（0.1.0.9 真机红灯修复）：首建转后台，管道先监听——
+        // 壳层连接不再超时，建索引期间 GetIndexStatus 照常应答（FileCount 实时增长，Ready=false）。
+        Task<FsIndexBuildResult>? fsFirstBuild = null;
         if (restoredIndex is not null)
         {
             fs = new FsIndexEngine(restoredIndex);
@@ -108,20 +187,31 @@ public static class ServiceHostFactory
         {
             var sink = new JournalSink(fsJournal);
             fs = new FsIndexEngine(journalSink: sink);
-            await fs.BuildAsync(volumeRoot, ct);
-            Console.WriteLine($"文件名索引首建完成：{fs.Snapshot().FileCount} 文件（降级慢路径={fs.Snapshot().UsedFallback}）");
+            fsFirstBuild = fs.BuildAsync(volumeRoot, ct);
+            _ = fsFirstBuild.ContinueWith(
+                async t =>
+                {
+                    if (t.IsCanceled) return;
+                    if (t.IsFaulted)
+                    {
+                        Console.WriteLine($"文件名索引首建失败: {t.Exception?.GetBaseException().Message}");
+                        return;
+                    }
+                    var result = t.Result;
+                    Console.WriteLine($"文件名索引首建完成：{result.FileCount} 文件（降级慢路径={result.UsedFallback}）");
 
-            // 关7实弹实证：首建后从不落快照 → 真机每次重启全量重建（真实盘几十万文件=分钟级冷启动）。
-            // 满盘/只读（关7口径）落盘失败只降级不致命。
-            try
-            {
-                var cp = IndexPersistence.SaveCheckpoint(fs, fsSnapshot, sink);
-                Console.WriteLine($"首建快照已落盘：{cp.FileCount} 文件（{cp.SnapshotBytes} B，{cp.ElapsedMilliseconds} ms）");
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                Console.WriteLine($"首建快照落盘失败（只读/满盘？），降级为内存服务: {ex.Message}");
-            }
+                    // 关7实弹实证：首建后从不落快照 → 真机每次重启全量重建（真实盘几十万文件=分钟级冷启动）。
+                    // 满盘/只读（关7口径）落盘失败只降级不致命。
+                    try
+                    {
+                        var cp = IndexPersistence.SaveCheckpoint(fs, fsSnapshot, sink);
+                        Console.WriteLine($"首建快照已落盘：{cp.FileCount} 文件（{cp.SnapshotBytes} B，{cp.ElapsedMilliseconds} ms）");
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        Console.WriteLine($"首建快照落盘失败（只读/满盘？），降级为内存服务: {ex.Message}");
+                    }
+                }, CancellationToken.None);
         }
 
         // 全文索引：快照+journal 恢复优先，缺失或损坏从空索引起（内容由事件管线增量补齐）
@@ -155,19 +245,21 @@ public static class ServiceHostFactory
         // 存量内容补齐（关3实弹实证缺陷）：内容管线只吃事件流，USN 不重放历史，
         // 全文快照缺失（首建）时存量文件内容永远不进倒排 → 全文搜索对存量恒空。
         // 快照缺失时把文件名索引存量全集入队内容管线；有快照则增量由事件泵承担，不重清。
+        // 先听后建口径：首建路径须等文件名首建完成再补齐，存量全集才完整。
         if (fullTextFresh)
         {
-            _ = Task.Run(() =>
+            _ = Task.Run(async () =>
             {
                 try
                 {
+                    if (fsFirstBuild is not null) await fsFirstBuild;
                     content.Rebuild(fs.EnumerateLivePaths(), CancellationToken.None);
                     // 补齐完成即落检查点（关7口径）：强杀后重启不再全量重扫全文
                     content.SaveCheckpoint(ftSnapshot);
                     Console.WriteLine("内容索引存量补齐完成，全文快照已落盘");
                 }
                 catch (Exception ex) { Console.WriteLine($"内容索引存量补齐失败: {ex.Message}"); }
-            });
+            }, CancellationToken.None);
         }
 
         // 事件泵：Windows 挂 USN 监听（真实源）；非 Windows（沙箱/测试）由注入源驱动

@@ -33,10 +33,8 @@ public sealed partial class QuickSearchWindow : Window
         }
         catch { /* 图标缺失不阻断 */ }
 
-        // 迷你窗形态：640 宽、置顶显示（OverlappedPresenter 承载置顶）
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(640, 480));
-        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
-            presenter.IsAlwaysOnTop = true;
+        // 迷你窗形态：640 宽、屏幕居中、置顶显示（OverlappedPresenter 承载置顶）
+        WindowPlacement.CenterOnScreen(this, 640, 480, topMost: true);
 
         QuickInput.KeyDown += OnInputKeyDown;
         QuickList.ItemsSource = _items;
@@ -108,12 +106,13 @@ public sealed partial class QuickSearchWindow : Window
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex)
+        catch (Exception)
         {
+            // 文案中文化（0.1.0.9）：不把原始英文异常直接抛给用户
             QuickEmpty.Visibility = Visibility.Visible;
             QuickList.Visibility = Visibility.Collapsed;
             EmptyTitle.Text = "搜索出错";
-            EmptyDesc.Text = ex.Message;
+            EmptyDesc.Text = "搜索服务暂时不可用，请稍候重试。";
             FootHint.Text = "Enter 在主窗口中打开完整搜索";
         }
     }

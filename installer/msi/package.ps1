@@ -10,10 +10,10 @@ param(
     [string]$UtilExtPath = "",
     [string]$RuntimeDir = ""
 )
-$ScriptVersion = "msi-v1-1121"
+$ScriptVersion = "msi-v2-1122"
 Write-Host "打包脚本版本: $ScriptVersion (若日志无此行, 说明运行的是旧脚本, 请全新目录重试)"
 $ErrorActionPreference = 'Stop'
-$ProductVersion = "0.1.0.8"
+$ProductVersion = "0.1.0.9"
 $UpgradeCode = "9A3E68D7-3E6A-49BF-B003-86C7A28EC6D5"
 $BundleUpgradeCode = "E65F0B4C-5C59-4CB8-95AE-565C781111ED"
 $publishRoot = (Resolve-Path $PublishDir).Path
@@ -25,11 +25,15 @@ if (-not (Test-Path (Join-Path $publishRoot 'TaoSearch.Service.exe'))) {
 }
 
 # ---- 枚举发布文件: 目录树(支持多级) + 组件清单 ----
+# 服务主程序单列组件（注册 Windows 服务需 KeyPath+ServiceInstall, 不进通用枚举）
+$serviceExeRel = "TaoSearch.Service.exe"
 $allFiles = Get-ChildItem -Path $publishRoot -Recurse -File
+$genericFiles = $allFiles | Where-Object { $_.FullName.Substring($publishRoot.Length).TrimStart('\') -ne $serviceExeRel }
+$serviceExeSource = ($publishRoot + '\' + $serviceExeRel).Replace('\', '/')
 $script:dirId = 0
 $script:dirRefs = @{}
 $tree = [ordered]@{}
-foreach ($f in $allFiles) {
+foreach ($f in $genericFiles) {
     $rel = $f.FullName.Substring($publishRoot.Length).TrimStart('\')
     $parts = $rel -split '\\'
     $node = $tree
@@ -69,7 +73,7 @@ foreach ($k in $hkcuStaleKeys) {
 }
 
 $components = ""
-foreach ($f in $allFiles) {
+foreach ($f in $genericFiles) {
     $rel = $f.FullName.Substring($publishRoot.Length).TrimStart('\')
     $parts = $rel -split '\\'
     $parent = if ($parts.Length -gt 1) { ($parts[0..($parts.Length-2)] -join '\') } else { "" }
@@ -110,71 +114,71 @@ $wxs = @"
       <TextStyle Id="TitleFont" FaceName="微软雅黑" Size="13" Bold="yes" />
       <Property Id="DefaultUIFont" Value="DlgFont" />
 
-      <Dialog Id="MainDlg" Width="440" Height="344" Title="[ProductName] 安装程序">
+      <Dialog Id="MainDlg" Width="440" Height="296" Title="[ProductName] 安装程序">
         <Control Id="Title" Type="Text" X="20" Y="12" Width="400" Height="22" Text="{\TitleFont}安装 TaoSearch" />
         <Control Id="LicenseText" Type="Text" X="20" Y="42" Width="400" Height="92" Text="TaoSearch $ProductVersion，免费使用。本软件按“现状”提供：请仅将它用于合法合规的本地文件搜索用途，作者不对使用本软件产生的任何损失承担责任。" />
         <Control Id="AcceptCheck" Type="CheckBox" X="20" Y="140" Width="400" Height="16" Property="LICENSE_ACCEPTED" CheckBoxValue="1" Text="我已阅读并同意以上说明" />
         <Control Id="SepLine" Type="Line" X="20" Y="164" Width="400" Height="1" />
         <Control Id="DirLabel" Type="Text" X="20" Y="174" Width="400" Height="14" Text="安装目录（可直接输入，不存在的文件夹会自动创建）：" />
         <Control Id="DirEdit" Type="PathEdit" X="20" Y="192" Width="310" Height="17" Property="INSTALLFOLDER" />
-        <Control Id="InstallNow" Type="PushButton" X="340" Y="282" Width="80" Height="24" Default="yes" Text="立即安装">
+        <Control Id="InstallNow" Type="PushButton" X="340" Y="236" Width="80" Height="24" Default="yes" Text="立即安装">
           <Publish Event="SpawnDialog" Value="AcceptWarnDlg" Condition="NOT LICENSE_ACCEPTED" Order="1" />
           <Publish Event="NewDialog" Value="VerifyReadyDlg" Condition="LICENSE_ACCEPTED" Order="2" />
         </Control>
-        <Control Id="CancelBtn" Type="PushButton" X="340" Y="310" Width="80" Height="18" Cancel="yes" Text="取消">
+        <Control Id="CancelBtn" Type="PushButton" X="340" Y="264" Width="80" Height="24" Cancel="yes" Text="取消">
           <Publish Event="EndDialog" Value="Exit" />
         </Control>
       </Dialog>
 
-      <Dialog Id="VerifyReadyDlg" Width="440" Height="130" Title="[ProductName] 安装程序">
+      <Dialog Id="VerifyReadyDlg" Width="440" Height="110" Title="[ProductName] 安装程序">
         <Control Id="ReadyText" Type="Text" X="20" Y="30" Width="400" Height="24" Text="准备安装 TaoSearch，点击“安装”开始。首次安装如缺运行组件会联网下载官方组件（只需一次）。" />
-        <Control Id="BackBtn" Type="PushButton" X="270" Y="95" Width="70" Height="22" Text="返回">
+        <Control Id="BackBtn" Type="PushButton" X="250" Y="78" Width="80" Height="24" Text="返回">
           <Publish Event="NewDialog" Value="MainDlg" />
         </Control>
-        <Control Id="InstallBtn" Type="PushButton" X="350" Y="95" Width="70" Height="22" Default="yes" Text="安装">
+        <Control Id="InstallBtn" Type="PushButton" X="340" Y="78" Width="80" Height="24" Default="yes" Text="安装">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
       </Dialog>
 
-      <Dialog Id="ProgressDlg" Width="440" Height="110" Title="[ProductName] 安装程序" Modeless="yes">
+      <Dialog Id="ProgressDlg" Width="440" Height="100" Title="[ProductName] 安装程序" Modeless="yes">
         <Control Id="ProgressText" Type="Text" X="20" Y="24" Width="400" Height="14" Text="正在安装，请稍候……" />
         <Control Id="ProgressBar" Type="ProgressBar" X="20" Y="48" Width="400" Height="14" Text="正在安装" />
-        <Control Id="CancelBtn" Type="PushButton" X="350" Y="78" Width="70" Height="20" Cancel="yes" Text="取消">
+        <Control Id="CancelBtn" Type="PushButton" X="340" Y="70" Width="80" Height="24" Cancel="yes" Text="取消">
           <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
 
-      <Dialog Id="AcceptWarnDlg" Width="280" Height="90" Title="[ProductName] 安装程序">
+      <Dialog Id="AcceptWarnDlg" Width="280" Height="100" Title="[ProductName] 安装程序">
         <Control Id="WarnText" Type="Text" X="20" Y="18" Width="240" Height="18" Text="请先勾选“我已阅读并同意以上说明”。" />
-        <Control Id="OkBtn" Type="PushButton" X="110" Y="55" Width="60" Height="20" Default="yes" Text="确定">
+        <Control Id="OkBtn" Type="PushButton" X="100" Y="60" Width="80" Height="24" Default="yes" Text="确定">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
       </Dialog>
-      <Dialog Id="CancelDlg" Width="280" Height="90" Title="[ProductName] 安装程序">
+      <Dialog Id="CancelDlg" Width="280" Height="100" Title="[ProductName] 安装程序">
         <Control Id="CancelText" Type="Text" X="20" Y="18" Width="240" Height="18" Text="确定要取消安装吗？" />
-        <Control Id="YesBtn" Type="PushButton" X="100" Y="55" Width="60" Height="20" Default="yes" Text="是">
+        <Control Id="YesBtn" Type="PushButton" X="60" Y="60" Width="80" Height="24" Default="yes" Text="是">
           <Publish Event="EndDialog" Value="Exit" />
         </Control>
-        <Control Id="NoBtn" Type="PushButton" X="170" Y="55" Width="60" Height="20" Text="否">
+        <Control Id="NoBtn" Type="PushButton" X="150" Y="60" Width="80" Height="24" Text="否">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
       </Dialog>
 
-      <Dialog Id="ExitDialog" Width="440" Height="130" Title="[ProductName] 安装程序">
+      <Dialog Id="ExitDialog" Width="440" Height="110" Title="[ProductName] 安装程序">
         <Control Id="DoneText" Type="Text" X="20" Y="30" Width="400" Height="24" Text="TaoSearch 安装完成，双击桌面图标即可开始搜索。" />
-        <Control Id="FinishBtn" Type="PushButton" X="350" Y="95" Width="70" Height="22" Default="yes" Text="完成">
+        <Control Id="FinishBtn" Type="PushButton" X="340" Y="78" Width="80" Height="24" Default="yes" Text="完成">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
       </Dialog>
-      <Dialog Id="UserExitDlg" Width="440" Height="130" Title="[ProductName] 安装程序">
+      <Dialog Id="UserExitDlg" Width="440" Height="110" Title="[ProductName] 安装程序">
         <Control Id="UserExitText" Type="Text" X="20" Y="30" Width="400" Height="24" Text="安装已取消，本机未做任何更改。" />
-        <Control Id="FinishBtn" Type="PushButton" X="350" Y="95" Width="70" Height="22" Default="yes" Text="完成">
+        <Control Id="FinishBtn" Type="PushButton" X="340" Y="78" Width="80" Height="24" Default="yes" Text="完成">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
       </Dialog>
-      <Dialog Id="FatalErrorDlg" Width="440" Height="130" Title="[ProductName] 安装程序">
+      <Dialog Id="FatalErrorDlg" Width="440" Height="110" Title="[ProductName] 安装程序">
         <Control Id="ErrorText" Type="Text" X="20" Y="30" Width="400" Height="24" Text="安装未完成，请重试或联系开发者。" />
-        <Control Id="FinishBtn" Type="PushButton" X="350" Y="95" Width="70" Height="22" Default="yes" Text="完成">
+        <Control Id="FinishBtn" Type="PushButton" X="340" Y="78" Width="80" Height="24" Default="yes" Text="完成">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
       </Dialog>
@@ -201,6 +205,15 @@ $wxs = @"
     <!-- 单一核心功能: 快捷方式自动创建 (制度: 不做勾选项), 右键菜单默认注册 -->
     <Feature Id="Core" Title="TaoSearch 主程序" Description="搜索服务 + 界面 + 右键菜单（必装）" Level="1" AllowAbsent="no">
       $components
+      <!-- 服务主程序单列组件: 注册 Windows 服务 (LocalSystem, 开机自启), 装完即起, 卸载即停即删 -->
+      <Component Directory="INSTALLFOLDER" Id="ServiceExeComponent">
+        <File Id="ServiceExeFile" Source="$serviceExeSource" KeyPath="yes" />
+        <ServiceInstall Id="TaoSearchServiceInstall" Name="TaoSearchService" DisplayName="TaoSearch 索引服务"
+                        Description="TaoSearch 本地索引与搜索服务。" Type="ownProcess" Start="auto"
+                        ErrorControl="normal" Vital="yes" />
+        <ServiceControl Id="TaoSearchServiceControl" Name="TaoSearchService" Start="install" Stop="both"
+                        Remove="uninstall" Wait="yes" />
+      </Component>
       <Component Directory="ApplicationProgramsFolder">
         <Shortcut Id="MenuLnk" Name="TaoSearch" Target="[INSTALLFOLDER]TaoSearch.App.exe" WorkingDirectory="INSTALLFOLDER">
           <!-- AUMID 与壳层 JumpListService.AppId 一致，任务栏跳转列表据此挂接 -->

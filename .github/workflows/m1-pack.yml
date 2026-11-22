@@ -45,7 +45,7 @@ jobs:
       - name: 发布框架依赖产物（不内置运行时，按 2026-11-21 新标准装时联网补）
         shell: pwsh
         run: |
-          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o installer/publish --nologo
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -f net10.0-windows -r win-x64 --self-contained false -o installer/publish --nologo
           dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o installer/publish --nologo
           $count = (Get-ChildItem installer/publish -Recurse -File | Measure-Object).Count
           if ($count -lt 2) { Write-Host "::error::发布产物异常偏少"; exit 1 }

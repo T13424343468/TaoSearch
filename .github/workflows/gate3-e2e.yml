@@ -24,7 +24,7 @@ jobs:
       - name: 发布服务（框架依赖 + WinAppSDK 自包含）
         shell: pwsh
         run: |
-          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -f net10.0-windows -r win-x64 --self-contained false -o publish --nologo
           dotnet build tests/Gate3Harness/Gate3Harness.csproj -c Release --nologo
 
       - name: 生成确定性语料（247 文件：中英文文件名/嵌套目录/内容暗号词/干扰集）

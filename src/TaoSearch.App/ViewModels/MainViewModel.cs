@@ -102,9 +102,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ? $"未找到与「{Query}」匹配的结果"
                 : $"共 {batch.TotalEstimate:0} 个结果";
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
         {
-            StatusText = $"搜索出错：{ex.Message}";
+            // 防抖取消属正常流转（0.1.0.9）：连续打字不再弹「搜索出错」
+        }
+        catch (Exception)
+        {
+            // 错误文案中文化（0.1.0.9）：不把原始英文异常直接抛给用户
+            StatusText = "搜索出错：搜索服务暂时不可用，请稍候重试；若持续出现，请从任务栏托盘退出后重新打开 TaoSearch。";
         }
         finally { IsSearching = false; }
     }

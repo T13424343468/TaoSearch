@@ -24,7 +24,7 @@ jobs:
       - name: 发布服务 + 编译关4装置
         shell: pwsh
         run: |
-          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -f net10.0-windows -r win-x64 --self-contained false -o publish --nologo
           dotnet build tests/Gate4Harness/Gate4Harness.csproj -c Release --nologo
 
       - name: 生成确定性语料（复用关3口径：247 文件）
