@@ -59,7 +59,7 @@ public sealed class PipeClient : IDisposable
 
             var header = new byte[12];
             await ReadExactlyAsync(pipe, header, ct);
-            int respLen = BitConverter.ToInt32(header, 0) - 12;
+            int respLen = BitConverter.ToInt32(header, 0); // 契约 §3.4：响应帧头即载荷长度
             var respPayload = new byte[respLen];
             await ReadExactlyAsync(pipe, respPayload, ct);
 
@@ -72,7 +72,7 @@ public sealed class PipeClient : IDisposable
     private byte[] BuildFrame(IpcMethod method, byte[] payload)
     {
         var frame = new byte[12 + payload.Length];
-        BitConverter.GetBytes(payload.Length + 12).CopyTo(frame, 0);
+        BitConverter.GetBytes(payload.Length).CopyTo(frame, 0); // 契约 §3.4：帧头 4B 为载荷长度（不含 12B 帧头）
         BitConverter.GetBytes(IpcProtocol.Version).CopyTo(frame, 4);
         BitConverter.GetBytes((ushort)method).CopyTo(frame, 6);
         BitConverter.GetBytes(_seq++).CopyTo(frame, 8);
