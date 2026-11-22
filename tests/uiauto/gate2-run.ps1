@@ -530,17 +530,30 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
         Check 'G2-27a' '暂停/恢复索引切换生效（文案往返）' $pauseOk $true
         $themeOk = $false
         try {
-            $mobai = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            $rbCond = New-Object System.Windows.Automation.AndCondition(
                 (New-Object System.Windows.Automation.PropertyCondition(
-                    [System.Windows.Automation.AutomationElement]::NameProperty, '墨白（深色）')))
+                    [System.Windows.Automation.AutomationElement]::NameProperty, '墨白（深色）')),
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::RadioButton)))
+            $mobai = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $rbCond)
             if ($mobai) {
-                ($mobai.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select()
+                try { ($mobai.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select() }
+                catch { ($mobai.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)).DoDefaultAction() }
                 Start-Sleep -Seconds 2
                 Screenshot 'G2-27-theme-dark'
-                $shuimo = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                $rbCond2 = New-Object System.Windows.Automation.AndCondition(
                     (New-Object System.Windows.Automation.PropertyCondition(
-                        [System.Windows.Automation.AutomationElement]::NameProperty, '水墨（浅色）')))
-                if ($shuimo) { ($shuimo.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select(); Start-Sleep -Seconds 1 }
+                        [System.Windows.Automation.AutomationElement]::NameProperty, '水墨（浅色）')),
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::RadioButton)))
+                $shuimo = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $rbCond2)
+                if ($shuimo) {
+                    try { ($shuimo.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select() }
+                    catch { ($shuimo.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)).DoDefaultAction() }
+                    Start-Sleep -Seconds 1
+                }
                 $themeOk = $true
             }
         } catch { Log "  主题切换异常: $_" }
@@ -653,6 +666,14 @@ try {
 # ---- Alt+Q 真实按键（G2-25，全面覆盖令：全局热键实测）----
 Log '== Alt+Q 真实按键 =='
 try {
+    # 快速窗若仍开着（G2-23 遗留），Alt+Q 是开关切换：先关再开，验证完整切换语义
+    $pre = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
+        (New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch 快速搜索')))
+    if ($pre) {
+        [System.Windows.Forms.SendKeys]::SendWait('%q')
+        Start-Sleep -Seconds 2
+    }
     [System.Windows.Forms.SendKeys]::SendWait('%q')
     $quickHot = $null
     foreach ($i in 1..10) {

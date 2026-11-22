@@ -111,7 +111,8 @@ public partial class App : Application
             if (LaunchArgs.TryGetSearch(args, out var keyword))
             {
                 ShowMainWindow();
-                if (_mainWindow is not null) _mainWindow.ViewModel.Query = keyword;
+                // 0.1.0.12：落搜索框（与手输同链路），不再只改 ViewModel 导致框内空白
+                if (_mainWindow is not null) _mainWindow.SetSearchText(keyword);
             }
             if (LaunchArgs.HasOpenIndex(args)) OpenIndexLocation();
         }

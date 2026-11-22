@@ -116,6 +116,12 @@ public sealed partial class MainWindow : Window
             ViewModel.Query = SearchBox.Text;
     }
 
+    /// <summary>转发/跳转参数落搜索框（0.1.0.12）：走 TextBox 与手输一致的链路，框内可见关键词。</summary>
+    public void SetSearchText(string text)
+    {
+        SearchBox.Text = text;
+    }
+
     private void OnResultSelected(object sender, SelectionChangedEventArgs e)
     {
         // 打开文件/所在目录：真机验收项（ShellExecute 走资源管理器定位）

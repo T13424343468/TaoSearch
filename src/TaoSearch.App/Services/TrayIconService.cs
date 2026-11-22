@@ -46,6 +46,9 @@ public sealed class TrayIconService : IDisposable
                 return;
             }
 
+            // 0.1.0.12：命令表随窗口创建即初始化，菜单未弹出过也能响应 WM_COMMAND（退出链路确定性）
+            RefreshMenuCommands();
+
             var nid = new NOTIFYICONDATA
             {
                 cbSize = (uint)Marshal.SizeOf<NOTIFYICONDATA>(),
@@ -89,7 +92,7 @@ public sealed class TrayIconService : IDisposable
         {
             var menu = CreatePopupMenu();
             if (menu == IntPtr.Zero) return;
-            _menuCommands.Clear();
+            RefreshMenuCommands();
             int id = 1;
             foreach (var text in new[]
             {
@@ -98,7 +101,6 @@ public sealed class TrayIconService : IDisposable
             })
             {
                 AppendMenu(menu, 0x0000 /*MF_STRING*/, id, text);
-                _menuCommands[id] = text;
                 if (id == 2) AppendMenu(menu, 0x0800 /*MF_SEPARATOR*/, 0, null);
                 id++;
             }
@@ -112,6 +114,16 @@ public sealed class TrayIconService : IDisposable
         {
             // 菜单失败不阻断
         }
+    }
+
+    private void RefreshMenuCommands()
+    {
+        // 0.1.0.12：命令表独立维护，菜单弹出前后一致；id 固定 1-4
+        _menuCommands.Clear();
+        _menuCommands[1] = "打开主窗";
+        _menuCommands[2] = "快速搜索";
+        _menuCommands[3] = _paused ? "恢复索引" : "暂停索引";
+        _menuCommands[4] = "退出";
     }
 
     private async void Execute(string command)
