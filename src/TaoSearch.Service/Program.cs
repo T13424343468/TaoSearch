@@ -151,13 +151,29 @@ public sealed class PipeServer(string pipeName, ServiceHost host)
     {
         while (!ct.IsCancellationRequested)
         {
-            var client = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 4,
-                PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            NamedPipeServerStream client;
+            try
+            {
+                client = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 4,
+                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            }
+            catch (IOException) when (!ct.IsCancellationRequested)
+            {
+                // 实例暂满（会话尚未释放）：等待重试，绝不因 All pipe instances busy 崩进程（关5实弹实证）
+                await Task.Delay(200, ct);
+                continue;
+            }
             Console.WriteLine($"[pipe] 监听中: {pipeName}");
             await client.WaitForConnectionAsync(ct);
             Console.WriteLine("[pipe] 客户端已连接");
             var session = new PipeSession(client);
-            _ = Task.Run(() => session.RunAsync(host, ct), ct); // 每连接一任务，服务不因单客户端阻塞
+            // 每连接一任务，服务不因单客户端阻塞；会话终了必须释放实例，否则 4 实例耗尽后服务永久不可用
+            _ = Task.Run(async () =>
+            {
+                try { await session.RunAsync(host, ct); }
+                catch (Exception) { /* 会话级异常不外泄：单连接故障不崩服务 */ }
+                finally { client.Dispose(); }
+            }, ct);
         }
     }
 }
