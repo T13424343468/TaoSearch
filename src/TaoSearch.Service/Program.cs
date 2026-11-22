@@ -19,7 +19,9 @@ public static class Program
 
     public static async Task Main(string[] args)
     {
-        if (!SingleInstance.WaitOne(0)) return; // 单实例：重复启动直接退出
+        if (!SingleInstance.WaitOne(0)) { Console.WriteLine("[svc] 单实例互斥体被占用，退出"); return; } // 单实例：重复启动直接退出
+
+        Console.OutputEncoding = System.Text.Encoding.UTF8; // 重定向取证时中文不乱码
 
         string volumeRoot = args.Length > 0 ? args[0]
             : Environment.GetEnvironmentVariable("TAOSEARCH_VOLUME") ?? @"C:\";
@@ -134,7 +136,9 @@ public sealed class PipeServer(string pipeName, ServiceHost host)
         {
             var client = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 4,
                 PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            Console.WriteLine($"[pipe] 监听中: {pipeName}");
             await client.WaitForConnectionAsync(ct);
+            Console.WriteLine("[pipe] 客户端已连接");
             var session = new PipeSession(client);
             _ = Task.Run(() => session.RunAsync(host, ct), ct); // 每连接一任务，服务不因单客户端阻塞
         }

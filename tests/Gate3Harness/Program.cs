@@ -95,8 +95,28 @@ async Task<int> RunAsync(string queriesPath, string reportPath, int timeoutSec)
         ?? throw new InvalidDataException("queries 文件解析失败");
 
     pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-    pipe.Connect(15000);
-    lines.Add($"[INFO] 管道已连接 {PipeName}");
+    // 轮询重试连接：服务启动+索引首建期间管道可能尚未监听，单次 Connect 15s 不够（上轮实弹步超时实证）
+    int attempts = 0;
+    var connectSw = Stopwatch.StartNew();
+    while (true)
+    {
+        attempts++;
+        try { pipe.Connect(2000); break; }
+        catch (TimeoutException) when (connectSw.Elapsed.TotalSeconds < 90)
+        {
+            Console.WriteLine($"[INFO] 管道连接第 {attempts} 次未就绪，重试…");
+            await Task.Delay(500);
+        }
+        catch (TimeoutException)
+        {
+            // 90s 仍连不上：自取证服务进程状态，避免盲猜
+            var procs = Process.GetProcessesByName("TaoSearch.Service");
+            Console.Error.WriteLine($"[DIAG] 90s 未连上管道；服务进程数={procs.Length}");
+            foreach (var p in procs) Console.Error.WriteLine($"[DIAG]   pid={p.Id} 启动于={p.StartTime:HH:mm:ss}");
+            throw;
+        }
+    }
+    lines.Add($"[INFO] 管道已连接 {PipeName}（尝试 {attempts} 次，耗时 {connectSw.Elapsed.TotalSeconds:F1}s）");
 
     // 等索引就绪：文件名索引必须就绪；内容索引就绪或超时（超时后内容类查询按实际结果判）
     bool contentReady = false;

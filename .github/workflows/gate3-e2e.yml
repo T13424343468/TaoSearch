@@ -40,7 +40,12 @@ jobs:
 
       - name: 关3 实效实弹（11 查询断言命中/预览/负样本 + 延迟 P50/P95）
         shell: pwsh
-        run: dotnet tests/Gate3Harness/bin/Release/net10.0/Gate3Harness.dll run --queries tests/Gate3Harness/queries.json --report "$PWD/gate3-results.txt" --timeout-sec 240
+        run: |
+          $svc = Get-Process TaoSearch.Service -ErrorAction SilentlyContinue
+          if (-not $svc) { Write-Host "::error::服务进程未存活，service.log 如下"; Get-Content "$PWD/service.log" -ErrorAction SilentlyContinue; Get-Content "$PWD/service.err.log" -ErrorAction SilentlyContinue; exit 1 }
+          Write-Host "服务进程 pid=$($svc.Id) 启动于 $($svc.StartTime.ToString('HH:mm:ss'))"
+          Write-Host "--- service.log ---"; Get-Content "$PWD/service.log"
+          dotnet tests/Gate3Harness/bin/Release/net10.0/Gate3Harness.dll run --queries tests/Gate3Harness/queries.json --report "$PWD/gate3-results.txt" --timeout-sec 240
 
       - name: 上传关3证据
         if: always()
