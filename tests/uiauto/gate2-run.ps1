@@ -93,7 +93,7 @@ if (-not $win) {
     $root = [System.Windows.Automation.AutomationElement]::RootElement
     $cond = New-Object System.Windows.Automation.PropertyCondition(
         [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch')
-    $win = $root.FindFirst([System.Windows.Automation.AutomationElement]::Descendants, $cond)
+    $win = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
 }
 Check 'G2-01' '主窗口可被 UIA 发现（句柄定位或 Name=TaoSearch）' ($null -ne $win) $true
 if ($win) {
