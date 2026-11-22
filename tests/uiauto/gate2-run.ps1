@@ -1,5 +1,7 @@
-﻿# 关2「能不能用」界面自动化清单（主班补位版 v1，2026-11-22）
+﻿# 关2「能不能用」界面自动化清单（主班补位版 v2，2026-11-22 全面覆盖令）
 # 口径：真 Windows 桌面会话内启动服务+壳层，UIA 逐项点通，每步截图留证。
+# v2（2026-11-22 老板令「全部都要补，要全面覆盖，没有死角」）：新增引导全流程（G2-11~15）、
+#   热键开关实际切换（G2-16）、托盘 UIA 探针（G2-17）、自启开关试切（G2-18）、引导跳过路径（G2-19）。
 # 严格项失败 → 退出码非零（关2 不通过）；INFO 项只记账不判红。
 # 用法: pwsh -File gate2-run.ps1 -PublishDir <publish目录> -EvidenceDir <证据目录>
 param(
@@ -36,6 +38,21 @@ function Screenshot([string]$name) {
     } catch { Log "  截图失败 $name : $_" }
 }
 
+function Invoke-UiaButton([System.Windows.Automation.AutomationElement]$w, [string]$label, [string]$id, [bool]$strict) {
+    try {
+        $btnCond = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::NameProperty, $label)
+        $btn = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $btnCond)
+        if (-not $btn) { Check $id "引导按钮「$label」定位失败" $false $strict; return $false }
+        try { ($btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() }
+        catch {
+            try { ($btn.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)).DoDefaultAction() }
+            catch { Check $id "引导按钮「$label」不可调用: $_" $false $strict; return $false }
+        }
+        return $true
+    } catch { Check $id "引导按钮「$label」异常: $_" $false $strict; return $false }
+}
+
 # ---- 测试语料：小卷目录（避免 runner 全盘慢路径扫描拖死作业） ----
 $testVolume = "$EvidenceDir\volume"
 New-Item -ItemType Directory -Force -Path "$testVolume\docs" | Out-Null
@@ -65,18 +82,71 @@ if (-not $pipeUp) {
     if (Test-Path "$EvidenceDir\service.err.log") { Get-Content "$EvidenceDir\service.err.log" | ForEach-Object { Log "  err| $_" } }
 }
 
-# ---- 启动壳层 ----
-Log '== 启动壳层 =='
-# 预置本地设置：跳过首启引导（引导窗标题非 TaoSearch，会干扰 G2-01 定位）
+# ---- 启动壳层（v2：干净环境先走引导全流程，再进主流程） ----
+Log '== 启动壳层（引导全流程段） =='
 $settingsDir = "$env:LOCALAPPDATA\TaoSearch"
 New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
-Set-Content "$settingsDir\settings.json" '{"OnboardingCompleted":true,"ShowQuickOnStartup":false}' -Encoding UTF8
+Remove-Item "$settingsDir\settings.json" -Force -ErrorAction SilentlyContinue  # 干净环境：引导窗必须出现
 $appLog = "$EvidenceDir\app.log"
 $app = Start-Process -FilePath "$PublishDir\TaoSearch.App.exe" -WorkingDirectory $PublishDir -PassThru `
     -RedirectStandardOutput "$EvidenceDir\app.out.log" -RedirectStandardError $appLog
 Start-Sleep -Seconds 6
 if ($app.HasExited) { Log "  壳层退出码: $($app.ExitCode)"; if (Test-Path $appLog) { Get-Content $appLog | ForEach-Object { Log "  app| $_" } } }
 Check 'G2-00b' '壳层进程存活（启动 6 秒未退出）' (-not $app.HasExited) $true
+
+
+# ---- 引导全流程（G2-11~G2-15，2026-11-22 全面覆盖令新增） ----
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+$ob = $null
+foreach ($i in 1..15) {
+    try {
+        $obCond = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch 首次使用引导')
+        $ob = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $obCond)
+        if ($ob) { break }
+    } catch { }
+    Start-Sleep -Seconds 2
+}
+Check 'G2-11' '首启引导窗出现（干净环境）' ($null -ne $ob) $true
+if ($ob) {
+    Screenshot 'G2-11-onboarding-step1'
+    $ok1 = Invoke-UiaButton $ob '下一步' 'G2-12' $true
+    Check 'G2-12' '引导第 1 步「下一步」可点通' $ok1 $true
+    if ($ok1) {
+        Start-Sleep -Seconds 1
+        Screenshot 'G2-12-onboarding-step2'
+        $ok2 = Invoke-UiaButton $ob '开始建立索引' 'G2-13' $true
+        Check 'G2-13' '引导第 2 步「开始建立索引」可点通' $ok2 $true
+        if ($ok2) {
+            Start-Sleep -Seconds 2
+            Screenshot 'G2-13-onboarding-step3'
+            $done = $false
+            foreach ($i in 1..90) {  # 180 秒：小卷应秒级就绪，留足余量
+                Start-Sleep -Seconds 2
+                try {
+                    $finCond = New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::NameProperty, '完成，进入 TaoSearch')
+                    $fin = $ob.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $finCond)
+                    if ($fin -and -not $fin.Current.IsOffscreen) { $done = $true; break }
+                } catch { }
+            }
+            try {
+                $pc = $ob.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'ProgressCount')))
+                if ($pc) { Log "  引导进度文案: $($pc.Current.Name)" }
+            } catch { }
+            Check 'G2-14' '引导第 3 步索引就绪出「完成」按钮（180 秒内）' $done $true
+            Screenshot 'G2-14-onboarding-done'
+            if ($done) {
+                $ok3 = Invoke-UiaButton $ob '完成，进入 TaoSearch' 'G2-15' $true
+                Start-Sleep -Seconds 2
+                Check 'G2-15' '引导「完成」进入主窗口' $ok3 $true
+                Screenshot 'G2-15-main-after-onboarding'
+            }
+        }
+    }
+}
 
 # ---- UIA 检查 ----
 # WinUI3 顶层窗在 UIA 树的挂载点不一定是 RootElement 直接子级：优先进程主窗句柄定位，Name 搜索兜底
@@ -172,6 +242,71 @@ if ($win) {
         Check 'G2-08' '设置页渲染出索引状态等内容' ($snames.Count -gt 0) $false
     }
 
+    # ---- 热键开关实际切换（G2-16，全面覆盖令：设置页开关真实切换并回读） ----
+    try {
+        $hkCond = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::NameProperty, '全局快捷键 Alt+Q（唤起 / 隐藏快速搜索窗）')
+        $hk = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $hkCond)
+        if ($hk) {
+            $s0 = $hk.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState
+            $hk.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+            Start-Sleep -Milliseconds 800
+            $s1 = $hk.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState
+            $hk.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+            Start-Sleep -Milliseconds 800
+            $s2 = $hk.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState
+            Check 'G2-16' "热键开关切换生效（$s0→$s1→$s2）" ($s0 -ne $s1 -and $s1 -ne $s2) $true
+            Screenshot 'G2-16-hotkey-toggle'
+        } else { Check 'G2-16' '未定位到热键开关控件' $false $true }
+    } catch { Check 'G2-16' "热键开关异常: $_" $false $true }
+
+    # ---- 热键状态提示文案（G2-16b，Alt+Q 失效显式反馈） ----
+    try {
+        $note = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'HotkeyNote')))
+        $noteText = if ($note) { $note.Current.Name } else { '' }
+        Log "  热键提示文案: $noteText"
+        Check 'G2-16b' '热键状态提示文案存在（Alt+Q 失效显式反馈）' ($noteText.Length -gt 0) $false
+    } catch { Log "  热键提示读取异常: $_" }
+
+    # ---- 托盘图标探针（G2-17，先求证：UIA 枚举任务栏通知区，首场定级） ----
+    try {
+        $trayFound = $false
+        $taskbar = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
+            (New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::ClassNameProperty, 'Shell_TrayWnd')))
+        if ($taskbar) {
+            $btnCond2 = New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Button)
+            $btns = $taskbar.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond2)
+            foreach ($b in $btns) {
+                if ("$($b.Current.Name)" -like '*TaoSearch*') { $trayFound = $true; break }
+            }
+            if (-not $trayFound) {
+                $tnames = @($btns | ForEach-Object { $_.Current.Name }) | Where-Object { $_ }
+                Log "  任务栏可见按钮: $($tnames -join ' | ')"
+            }
+        } else { Log '  未找到任务栏窗口 Shell_TrayWnd' }
+        Check 'G2-17' '托盘图标在通知区可见（UIA）' $trayFound $false
+        Screenshot 'G2-17-tray'
+    } catch { Check 'G2-17' "托盘枚举异常: $_" $false $false }
+
+    # ---- 开机自启开关试切（G2-18，MSIX StartupTask：非打包环境试切留痕，生效性真机项） ----
+    try {
+        $st = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'StartupToggle')))
+        if ($st) {
+            try {
+                ($st.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)).Toggle()
+                Start-Sleep -Milliseconds 800
+                Check 'G2-18' '自启开关可操作（MSIX StartupTask 生效性真机项）' $true $false
+            } catch { Check 'G2-18' "自启开关切换受限: $_" $false $false }
+        } else { Check 'G2-18' '未定位到自启开关' $false $false }
+    } catch { Log "  自启开关异常: $_" }
+
     Screenshot 'G2-99-final'
 }
 else {
@@ -189,6 +324,34 @@ else {
 
 # ---- 收尾 ----
 Check 'G2-10' '检查全程壳层未崩溃' (-not $app.HasExited) $true
+
+# ---- 引导「稍后再说」跳过路径（G2-19，全面覆盖令：第二出口） ----
+Log '== 引导跳过路径 =='
+try { $app.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 2; if (-not $app.HasExited) { $app.Kill() } } catch { }
+Start-Sleep -Seconds 2
+Remove-Item "$settingsDir\settings.json" -Force -ErrorAction SilentlyContinue
+$app2 = Start-Process -FilePath "$PublishDir\TaoSearch.App.exe" -WorkingDirectory $PublishDir -PassThru `
+    -RedirectStandardOutput "$EvidenceDir\app2.out.log" -RedirectStandardError "$EvidenceDir\app2.log"
+$skipOk = $false
+foreach ($i in 1..15) {
+    Start-Sleep -Seconds 2
+    try {
+        $ob2 = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
+            (New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch 首次使用引导')))
+        if ($ob2) {
+            if (Invoke-UiaButton $ob2 '稍后再说' 'G2-19a' $true) {
+                Start-Sleep -Seconds 3
+                $app2.Refresh()
+                $skipOk = ($app2.MainWindowHandle -ne [IntPtr]::Zero)
+            }
+            break
+        }
+    } catch { }
+}
+Check 'G2-19' '引导「稍后再说」跳过直达主窗口' $skipOk $true
+Screenshot 'G2-19-skip-main'
+try { $app2.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 2; if (-not $app2.HasExited) { $app2.Kill() } } catch { }
 
 # ---- 崩溃取证（0.1.0.9）：壳层若崩溃，从事件日志与 crash.log 取堆栈 ----
 Log '== 崩溃取证 =='
