@@ -79,16 +79,23 @@ if ($app.HasExited) { Log "  壳层退出码: $($app.ExitCode)"; if (Test-Path $
 Check 'G2-00b' '壳层进程存活（启动 6 秒未退出）' (-not $app.HasExited) $true
 
 # ---- UIA 检查 ----
-$root = [System.Windows.Automation.AutomationElement]::RootElement
+# WinUI3 顶层窗在 UIA 树的挂载点不一定是 RootElement 直接子级：优先进程主窗句柄定位，Name 搜索兜底
 $win = $null
 foreach ($i in 1..15) {
-    $cond = New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch')
-    $win = $root.FindFirst([System.Windows.Automation.AutomationElement]::Children, $cond)
-    if ($win) { break }
+    $app.Refresh()
+    if ($app.MainWindowHandle -ne [IntPtr]::Zero) {
+        try { $win = [System.Windows.Automation.AutomationElement]::FromHandle($app.MainWindowHandle) } catch { }
+        if ($win) { break }
+    }
     Start-Sleep -Seconds 2
 }
-Check 'G2-01' '主窗口可被 UIA 发现（Name=TaoSearch）' ($null -ne $win) $true
+if (-not $win) {
+    $root = [System.Windows.Automation.AutomationElement]::RootElement
+    $cond = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch')
+    $win = $root.FindFirst([System.Windows.Automation.AutomationElement]::Descendants, $cond)
+}
+Check 'G2-01' '主窗口可被 UIA 发现（句柄定位或 Name=TaoSearch）' ($null -ne $win) $true
 if ($win) {
     Screenshot 'G2-01-mainwindow'
 
