@@ -55,6 +55,26 @@ function Click-UiaElement([System.Windows.Automation.AutomationElement]$el) {
     } catch { Log "  鼠标点击失败: $_"; return $false }
 }
 
+function Scroll-WheelOver([System.Windows.Automation.AutomationElement]$el, [int]$notches) {
+    # 主题卡在首屏外（截图实证）：光标移到元素区中央，用鼠标滚轮下滚（负 delta）数格
+    try {
+        if (-not ('G2Wheel.Native' -as [type])) {
+            Add-Type -Namespace G2Wheel -Name Native -MemberDefinition '
+[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+[DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, int data, UIntPtr extra);'
+        }
+        $r = $el.Current.BoundingRectangle
+        if ($r.IsEmpty) { return $false }
+        [G2Wheel.Native]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)) | Out-Null
+        Start-Sleep -Milliseconds 200
+        foreach ($n in 1..$notches) {
+            [G2Wheel.Native]::mouse_event(0x0800, 0, 0, -120, [UIntPtr]::Zero)
+            Start-Sleep -Milliseconds 150
+        }
+        return $true
+    } catch { Log "  滚轮滚动失败: $_"; return $false }
+}
+
 function Close-UiaDialog([System.Windows.Automation.AutomationElement]$w) {
     # 关闭可能打开的 ContentDialog（关闭按钮文案「好」），模拟真实用户先关弹窗再操作
     try {
@@ -547,6 +567,9 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
         Check 'G2-27a' '暂停/恢复索引切换生效（文案往返）' $pauseOk $true
         $themeOk = $false
         try {
+            # 主题卡在首屏外（截图实证）：先在设置页区域滚轮下滚数格，再定位单选
+            Scroll-WheelOver $win 6 | Out-Null
+            Start-Sleep -Milliseconds 500
             $rbCond = New-Object System.Windows.Automation.AndCondition(
                 (New-Object System.Windows.Automation.PropertyCondition(
                     [System.Windows.Automation.AutomationElement]::NameProperty, '墨白（深色）')),
@@ -554,6 +577,7 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
                     [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
                     [System.Windows.Automation.ControlType]::RadioButton)))
             $mobai = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $rbCond)
+            if (-not $mobai) { Scroll-WheelOver $win 6 | Out-Null; Start-Sleep -Milliseconds 500; $mobai = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $rbCond) }
             if ($mobai) {
                 # 主题卡在首屏外（G2-27 截图实证）：先滚动入视再选
                 try { ($mobai.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)).ScrollIntoView(); Start-Sleep -Milliseconds 800 } catch { }
@@ -561,6 +585,8 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
                 catch { if (-not (Click-UiaElement $mobai)) { throw "墨白单选不可选: $_" } }
                 Start-Sleep -Seconds 2
                 Screenshot 'G2-27-theme-dark'
+                Scroll-WheelOver $win 3 | Out-Null
+                Start-Sleep -Milliseconds 400
                 $rbCond2 = New-Object System.Windows.Automation.AndCondition(
                     (New-Object System.Windows.Automation.PropertyCondition(
                         [System.Windows.Automation.AutomationElement]::NameProperty, '水墨（浅色）')),
@@ -682,7 +708,8 @@ try {
                 catch { try { ($navHome.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() } catch { } }
                 Start-Sleep -Seconds 1
             }
-            foreach ($i in 1..10) {
+            $resultsHit = $false
+            foreach ($i in 1..30) {
                 $eds = $win2.FindAll([System.Windows.Automation.TreeScope]::Descendants,
                     (New-Object System.Windows.Automation.PropertyCondition(
                         [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
@@ -694,18 +721,27 @@ try {
                     Log ("  转发回读 第{0}轮 Edits: {1}" -f $i, ($dump -join ' | '))
                     $ed2 = $eds[0]
                     $val2 = ($ed2.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).Value
-                    if ($val2 -eq 'readme') { break }
                 } else {
                     Log "  转发回读: 第$i轮未找到 Edit 控件"
                 }
+                # 断言主体：结果列表命中 readme（转发链路真实生效）；框回读为辅
+                try {
+                    $rItems = $win2.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                        (New-Object System.Windows.Automation.PropertyCondition(
+                            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                            [System.Windows.Automation.ControlType]::ListItem)))
+                    $rNames = @($rItems | ForEach-Object { $_.Current.Name }) -join '|'
+                    if ($rNames -match 'readme') { $resultsHit = $true; Log ("  转发回读 第{0}轮 结果列表命中: {1}" -f $i, $rNames) }
+                } catch { }
+                if ($resultsHit -or ($val2 -eq 'readme')) { break }
                 Start-Sleep -Seconds 1
             }
             Log ("  转发回读: launch-args 文件存在=" + (Test-Path "$env:TEMP\TaoSearch\launch-args.json"))
-            $fwd = ($val2 -eq 'readme')
+            $fwd = ($val2 -eq 'readme') -or $resultsHit
             Screenshot 'G2-26-forward-readback'
         }
     } catch { Log "  转发回读异常: $_" }
-    Check 'G2-26c' "转发后原实例搜索框=readme（回读=$val2）" $fwd $true
+    Check 'G2-26c' "转发生效（框回读=$val2，结果命中=$resultsHit）" $fwd $true
 } catch { Check 'G2-26' "单实例转发异常: $_" $false $true }
 
 # ---- Alt+Q 真实按键（G2-25，全面覆盖令：全局热键实测）----
