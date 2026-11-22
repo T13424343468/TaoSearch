@@ -48,7 +48,11 @@ public sealed partial class MainWindow : Window
     // —— 双标签：文件名 / 内容（单选互斥） ——
     private void OnTabClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is not ToggleButton clicked) return;
+        if (sender is ToggleButton clicked) SelectTab(clicked);
+    }
+
+    private void SelectTab(ToggleButton clicked)
+    {
         clicked.IsChecked = true;
         var other = ReferenceEquals(clicked, TabFilename) ? TabContent : TabFilename;
         other.IsChecked = false;
@@ -104,7 +108,7 @@ public sealed partial class MainWindow : Window
                 case "content":
                     // 内容搜索与文件名搜索共用主窗口，通过上方标签页切换（原型口径）
                     OverlayHost.Visibility = Visibility.Collapsed;
-                    if (!TabContent.IsChecked.GetValueOrDefault()) TabContent.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                    SelectTab(TabContent);
                     break;
                 case "settings":
                     OverlayHost.Content = new SettingsPage { ViewModel = SettingsViewModel };
