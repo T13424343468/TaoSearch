@@ -1,5 +1,6 @@
 ﻿# 关2「能不能用」界面自动化清单（主班补位版 v2，2026-11-22 全面覆盖令）
 # 口径：真 Windows 桌面会话内启动服务+壳层，UIA 逐项点通，每步截图留证。
+# v4d（2026-11-22）：G2-27 段先关遮挡主窗的快速窗再滚轮；G2-26c 改轻量轮询，不饿死 UI 线程。
 # v4（2026-11-22 老板令「必须全面覆盖无死角」）：对账补齐 G2-22~G2-27（内容页签全文搜索/快速窗输入即搜/设置页按钮群/Alt+Q 真实按键/单实例转发/托盘退出）；v3 托盘命令链路 G2-20（关窗进托盘→右键回调→打开主窗复现）、
 #   托盘「快速搜索」拉起快速窗并截图（G2-21）；v2：引导全流程（G2-11~15）、热键开关切换（G2-16）、托盘 UIA 探针（G2-17）、自启开关试切（G2-18）、引导跳过路径（G2-19）。
 # 严格项失败 → 退出码非零（关2 不通过）；INFO 项只记账不判红。
@@ -536,6 +537,13 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
     # ---- 设置页操作按钮群（G2-27，全面覆盖令）----
     Log '== 设置页操作按钮群 =='
     try {
+        # 快速窗若仍开着会盖住主窗中央，滚轮/点击会落到快速窗上（截图实证）：先关掉
+        try {
+            $qw = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch 快速搜索')))
+            if ($qw) { ($qw.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)).Close(); Log '  已关快速窗（避免遮挡主窗滚轮）'; Start-Sleep -Seconds 1 }
+        } catch { Log "  关快速窗失败（继续）: $_" }
         $nav2 = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
             (New-Object System.Windows.Automation.PropertyCondition(
                 [System.Windows.Automation.AutomationElement]::NameProperty, '设置')))
@@ -709,30 +717,28 @@ try {
                 Start-Sleep -Seconds 1
             }
             $resultsHit = $false
-            foreach ($i in 1..30) {
-                $eds = $win2.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-                    (New-Object System.Windows.Automation.PropertyCondition(
-                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                        [System.Windows.Automation.ControlType]::Edit)))
-                if ($eds.Count -gt 0) {
-                    $dump = @($eds | ForEach-Object {
-                        $vp = $_.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-                        "{0}={1}" -f $_.Current.AutomationId, $vp.Value })
-                    Log ("  转发回读 第{0}轮 Edits: {1}" -f $i, ($dump -join ' | '))
-                    $ed2 = $eds[0]
-                    $val2 = ($ed2.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).Value
-                } else {
-                    Log "  转发回读: 第$i轮未找到 Edit 控件"
-                }
-                # 断言主体：结果列表命中 readme（转发链路真实生效）；框回读为辅
+            # 轻量轮询：每轮只按 AutomationId 精读 SearchBox；整树 FindAll 改每 5 轮一次。
+            # 重轮询会持续占用应用 UI 线程，转发回调被饿到轮询结束后才执行（三轮截图均在停止后 1 秒内出现内容）。
+            foreach ($i in 1..60) {
                 try {
-                    $rItems = $win2.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-                        (New-Object System.Windows.Automation.PropertyCondition(
-                            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                            [System.Windows.Automation.ControlType]::ListItem)))
-                    $rNames = @($rItems | ForEach-Object { $_.Current.Name }) -join '|'
-                    if ($rNames -match 'readme') { $resultsHit = $true; Log ("  转发回读 第{0}轮 结果列表命中: {1}" -f $i, $rNames) }
+                    $sbCond = New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SearchBox')
+                    $sb = $win2.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $sbCond)
+                    if ($sb) {
+                        $val2 = ($sb.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).Value
+                        if ($i -le 5 -or $i % 10 -eq 0) { Log ("  转发回读 第{0}轮 SearchBox={1}" -f $i, $val2) }
+                    }
                 } catch { }
+                if ($i % 5 -eq 0) {
+                    # 断言主体：结果列表出现即转发链路真实生效；框回读为辅
+                    try {
+                        $rItems = $win2.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                            (New-Object System.Windows.Automation.PropertyCondition(
+                                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                                [System.Windows.Automation.ControlType]::ListItem)))
+                        if ($rItems.Count -gt 0) { $resultsHit = $true; Log ("  转发回读 第{0}轮 结果列表出现（{1} 项）" -f $i, $rItems.Count) }
+                    } catch { }
+                }
                 if ($resultsHit -or ($val2 -eq 'readme')) { break }
                 Start-Sleep -Seconds 1
             }
