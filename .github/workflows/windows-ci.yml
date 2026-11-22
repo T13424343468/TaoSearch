@@ -58,11 +58,20 @@ jobs:
           --filter "Category!=Benchmark" --logger "trx;LogFileName=taosearch-tests.trx" --results-directory "D:\taosearch-test-results"
           --blame-hang --blame-hang-timeout 3m --blame-hang-dump-type mini
 
+      - name: 分支覆盖出账（coverlet，测试规范九.11 第一根钉子：工具出账不许口头报数）
+        run: >
+          dotnet test TaoSearch.Kernel.slnx -c Release --no-build --nologo
+          --filter "Category!=Benchmark"
+          --collect:"XPlat Code Coverage;Format=cobertura"
+          --results-directory "D:\taosearch-coverage"
+
       - name: 上传测试证据
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-evidence
-          path: D:\taosearch-test-results\**
+          path: |
+            D:\taosearch-test-results\**
+            D:\taosearch-coverage\**
           if-no-files-found: warn
           retention-days: 14
