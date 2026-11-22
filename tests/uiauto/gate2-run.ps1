@@ -169,6 +169,15 @@ if ($win) {
 }
 else {
     Screenshot 'G2-01-window-not-found'
+    try {
+        $topCond = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Window)
+        $tops = $root.FindAll([System.Windows.Automation.TreeScope]::Children, $topCond)
+        $topNames = @($tops | ForEach-Object { $_.Current.Name }) | Where-Object { $_ }
+        Log "  顶层窗口: $($topNames -join ' | ')"
+        $results.Add("[INFO] 顶层窗口: $($topNames -join ' | ')")
+    } catch { Log "  顶层窗口枚举失败: $_" }
 }
 
 # ---- 收尾 ----

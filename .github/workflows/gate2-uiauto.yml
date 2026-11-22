@@ -29,8 +29,8 @@ jobs:
           dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
           Get-ChildItem publish/TaoSearch.*.exe | ForEach-Object { Write-Host $_.Name }
 
-      - name: 关2 界面自动化清单（UIA 逐项点通 + 截图留证）
-        shell: pwsh
+      - name: 关2 界面自动化清单（UIA 逐项点通 + 截图留证；UIA 需 Windows PowerShell 5.1 宿主）
+        shell: powershell
         run: ./tests/uiauto/gate2-run.ps1 -PublishDir "$PWD/publish" -EvidenceDir "$PWD/qa-evidence"
 
       - name: 上传关2证据
