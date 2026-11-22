@@ -44,6 +44,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public string StorageLocation { get; } = @"D:\TaoSearch\Index（不可用时自动改用本机数据目录）";
 
+    private string _indexLocation = AppSettings.Instance.IndexLocation;
+    public string IndexLocation
+    {
+        get => _indexLocation;
+        set { _indexLocation = value; PropertyChanged?.Invoke(this, new(nameof(IndexLocation))); }
+    }
+
     public SettingsViewModel(SearchGateway gateway) => _gateway = gateway;
 
     public async Task RefreshAsync(CancellationToken ct = default)

@@ -10,72 +10,122 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- 顶部：搜索框 + 范围切换 -->
-        <Grid Grid.Row="0" Margin="16,12,16,8">
+        <!-- 顶部：双标签（文件名/内容）+ 搜索框 + 排序 -->
+        <Grid Grid.Row="0" Margin="16,12,16,4">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,0,8"
+                        Background="{ThemeResource Surface2Brush}" CornerRadius="8" Padding="4">
+                <ToggleButton x:Name="TabFilename" Content="文件名" IsChecked="True" Click="OnTabClicked" Tag="filename" />
+                <ToggleButton x:Name="TabContent" Content="内容" Click="OnTabClicked" Tag="content" />
+            </StackPanel>
+            <Grid Grid.Row="1" ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="SearchBox"
+                         PlaceholderText="输入文件名，支持 * 通配与 regex: 正则"
+                         FontSize="{StaticResource FontBody}"
+                         CornerRadius="{StaticResource InputRadius}"
+                         TextChanged="OnSearchTextChanged" />
+                <ComboBox x:Name="SortBox" Grid.Column="1" Width="120"
+                          SelectionChanged="OnSortChanged">
+                    <ComboBoxItem Content="相关度" IsSelected="True" Tag="Relevance" />
+                    <ComboBoxItem Content="名称" Tag="Name" />
+                    <ComboBoxItem Content="路径" Tag="Path" />
+                    <ComboBoxItem Content="大小" Tag="Size" />
+                    <ComboBoxItem Content="修改时间" Tag="Modified" />
+                </ComboBox>
+            </Grid>
+        </Grid>
+
+        <!-- 筛选 chips（内容标签页显示） -->
+        <StackPanel Grid.Row="1" x:Name="ChipsPanel" Orientation="Horizontal" Spacing="8"
+                    Margin="16,0,16,8" Visibility="Collapsed">
+            <ToggleButton x:Name="ChipAll" Content="全部" IsChecked="True" Click="OnChipClicked" Tag="all" CornerRadius="999" />
+            <ToggleButton x:Name="ChipMarkdown" Content="Markdown" Click="OnChipClicked" Tag="markdown" CornerRadius="999" />
+            <ToggleButton x:Name="ChipDocument" Content="文档" Click="OnChipClicked" Tag="document" CornerRadius="999" />
+            <ToggleButton x:Name="ChipSheet" Content="表格" Click="OnChipClicked" Tag="sheet" CornerRadius="999" />
+            <ToggleButton x:Name="ChipCode" Content="代码" Click="OnChipClicked" Tag="code" CornerRadius="999" />
+        </StackPanel>
+
+        <!-- 状态行：结果计数 + 索引状态条 -->
+        <Grid Grid.Row="2" Margin="18,0,16,8" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="SearchBox"
-                     PlaceholderText="输入文件名或内容关键词…"
-                     FontSize="{StaticResource FontBody}"
-                     CornerRadius="{StaticResource InputRadius}"
-                     TextChanged="OnSearchTextChanged" />
-            <ToggleSwitch x:Name="ContentToggle"
-                          Grid.Column="1" Margin="12,0,0,0"
-                          OnContent="含内容" OffContent="仅文件名"
-                          Toggled="OnScopeToggled" />
+            <TextBlock x:Name="StatusText" Style="{StaticResource AuxText}" />
+            <TextBlock x:Name="IndexStatusText" Grid.Column="1" Style="{StaticResource AuxText}" Text="索引状态：—" />
         </Grid>
 
-        <!-- 状态行 -->
-        <TextBlock Grid.Row="1" x:Name="StatusText"
-                   Margin="18,0,16,8"
-                   Style="{StaticResource AuxText}" />
+        <!-- 结果列表 / 空态 / 报错横幅 -->
+        <Grid Grid.Row="3" Margin="16,0,16,8">
+            <ScrollViewer>
+                <ListView x:Name="ResultList" SelectionChanged="OnResultSelected">
+                    <ListView.ItemTemplate>
+                        <!-- Window 根不支持 x:Bind（生成代码要求 FrameworkElement），数据项经 DataContext 走经典 Binding -->
+                        <DataTemplate>
+                            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,8">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{Binding FileName}" Style="{StaticResource BodyText}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Path}" Style="{StaticResource AuxText}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding SizeText}" Style="{StaticResource AuxText}" />
+                                    <ItemsControl ItemsSource="{Binding Segments}" Visibility="{Binding Snippet, Converter={StaticResource NullToCollapsedConverter}}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Text}"
+                                                           FontSize="{StaticResource FontAux}"
+                                                           Foreground="{Binding IsMatch, Converter={StaticResource MatchToBrushConverter}}"
+                                                           TextWrapping="Wrap" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </ScrollViewer>
 
-        <!-- 结果列表（x:Bind 在 Window 根不可用：生成代码要求 FrameworkElement，改 code-behind 接线） -->
-        <ScrollViewer Grid.Row="2" Margin="16,0,16,8">
-            <ListView x:Name="ResultList" SelectionChanged="OnResultSelected">
-                <ListView.ItemTemplate>
-                    <!-- Window 根不支持 x:Bind（生成代码要求 FrameworkElement），数据项经 DataContext 走经典 Binding -->
-                    <DataTemplate>
-                        <Border Style="{StaticResource CardBorder}" Margin="0,0,0,8">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="{Binding FileName}" Style="{StaticResource BodyText}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding Path}" Style="{StaticResource AuxText}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding SizeText}" Style="{StaticResource AuxText}" />
-                                <ItemsControl ItemsSource="{Binding Segments}" Visibility="{Binding Snippet, Converter={StaticResource NullToCollapsedConverter}}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding Text}"
-                                                       FontSize="{StaticResource FontAux}"
-                                                       Foreground="{Binding IsMatch, Converter={StaticResource MatchToBrushConverter}}"
-                                                       TextWrapping="Wrap" />
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                        </Border>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-        </ScrollViewer>
+            <!-- 空态（负阴抱阳：待输入 / 无结果） -->
+            <StackPanel x:Name="EmptyPanel" VerticalAlignment="Center" Spacing="8" HorizontalAlignment="Center" Margin="32,0">
+                <TextBlock x:Name="EmptyIcon" Text="🔍" FontSize="32" Opacity="0.6" HorizontalAlignment="Center" />
+                <TextBlock x:Name="EmptyTitle" Text="准备好了" FontSize="16" FontWeight="SemiBold" Foreground="{ThemeResource InkBrush}" HorizontalAlignment="Center" />
+                <TextBlock x:Name="EmptyDesc" TextWrapping="Wrap" TextAlignment="Center" FontSize="12" Foreground="{ThemeResource Ink3Brush}" MaxWidth="420" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <!-- 报错横幅 -->
+            <Border x:Name="ErrorBanner" Visibility="Collapsed" Background="{ThemeResource CinwBrush}"
+                    CornerRadius="{StaticResource CardRadius}" Padding="16" Margin="0,8,0,0" VerticalAlignment="Top">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="搜索出错" FontSize="16" FontWeight="SemiBold" Foreground="{ThemeResource CinBrush}" />
+                    <TextBlock x:Name="ErrorCause" FontSize="12" Foreground="{ThemeResource Ink2Brush}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </Grid>
 
         <!-- 顶部导航（WinUI3 NavigationViewPaneDisplayMode 无 Bottom 值，WMC0055；底部导航形态待真机调优再定） -->
-        <NavigationView Grid.Row="3" x:Name="Nav"
+        <NavigationView Grid.Row="4" x:Name="Nav"
                         PaneDisplayMode="Top"
                         SelectionChanged="OnNavChanged">
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="搜索" Tag="main" IsSelected="True" />
+                <NavigationViewItem Content="内容" Tag="content" />
                 <NavigationViewItem Content="设置" Tag="settings" />
             </NavigationView.MenuItems>
         </NavigationView>
-        <ContentControl Grid.Row="3" x:Name="OverlayHost" Visibility="Collapsed" />
+        <ContentControl Grid.Row="4" x:Name="OverlayHost" Visibility="Collapsed" />
     </Grid>
 </Window>

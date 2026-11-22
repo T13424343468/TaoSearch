@@ -32,6 +32,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set { _isContentScope = value; _ = SearchNowAsync(); }
     }
 
+    /// <summary>排序方式（FR-03/FR-05）：相关度（默认）/名称/路径/大小/修改时间。</summary>
+    public enum SortKind { Relevance, Name, Path, Size, Modified }
+
+    private SortKind _sort = SortKind.Relevance;
+    public SortKind Sort
+    {
+        get => _sort;
+        set { _sort = value; _ = SearchNowAsync(); }
+    }
+
+    private string _kindFilter = "all"; // all / markdown / document / sheet / code
+    public string KindFilter
+    {
+        get => _kindFilter;
+        set { _kindFilter = value; _ = SearchNowAsync(); }
+    }
+
     private bool _isSearching;
     public bool IsSearching
     {
@@ -77,12 +94,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var scope = IsContentScope ? QueryScope.Filename | QueryScope.Content : QueryScope.Filename;
             var batch = await _gateway.SearchAsync(Query, scope, 200, ct);
             Hits.Clear();
-            foreach (var hit in batch.Hits)
+            foreach (var hit in SortAndFilter(batch.Hits))
             {
                 Hits.Add(ToViewModel(hit));
             }
-            StatusText = batch.Hits.Count == 0
-                ? "没有找到匹配的文件"
+            StatusText = Hits.Count == 0
+                ? $"未找到与「{Query}」匹配的结果"
                 : $"共 {batch.TotalEstimate:0} 个结果";
         }
         catch (Exception ex)
@@ -91,6 +108,36 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         finally { IsSearching = false; }
     }
+
+    /// <summary>按类型筛选 + 排序（相关度沿用引擎打分顺序）。</summary>
+    private IEnumerable<SearchHit> SortAndFilter(IReadOnlyList<SearchHit> hits)
+    {
+        IEnumerable<SearchHit> seq = hits;
+        if (KindFilter != "all")
+        {
+            seq = seq.Where(h => KindFilter switch
+            {
+                "markdown" => h.FileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || h.FileName.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase),
+                "document" => h.FileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) || h.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase),
+                "sheet" => h.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) || h.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase),
+                "code" => h.FileName.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || h.FileName.EndsWith(".py", StringComparison.OrdinalIgnoreCase)
+                    || h.FileName.EndsWith(".js", StringComparison.OrdinalIgnoreCase) || h.FileName.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
+                    || h.FileName.EndsWith(".cpp", StringComparison.OrdinalIgnoreCase) || h.FileName.EndsWith(".h", StringComparison.OrdinalIgnoreCase),
+                _ => true,
+            });
+        }
+        return Sort switch
+        {
+            SortKind.Name => seq.OrderBy(h => h.FileName, StringComparer.CurrentCulture),
+            SortKind.Path => seq.OrderBy(h => h.Path, StringComparer.CurrentCulture),
+            SortKind.Size => seq.OrderByDescending(h => h.Size),
+            SortKind.Modified => seq.OrderByDescending(h => h.ModifiedTime),
+            _ => seq, // Relevance：引擎打分序
+        };
+    }
+
+    /// <summary>快速搜索窗与主窗共用同一映射。</summary>
+    internal static HitViewModel ToSharedViewModel(SearchHit hit) => ToViewModel(hit);
 
     private static HitViewModel ToViewModel(SearchHit hit)
     {

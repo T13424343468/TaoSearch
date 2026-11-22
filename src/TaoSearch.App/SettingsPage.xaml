@@ -33,7 +33,83 @@
                 </StackPanel>
             </Border>
 
-            <!-- 存储位置卡 -->
+            <!-- 索引库位置卡 -->
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="索引库位置" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="{x:Bind ViewModel.IndexLocation, Mode=OneWay}" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="更改位置…" Click="OnChangeIndexLocation" />
+                        <Button Content="恢复默认（D:\TaoSearch\Index）" Click="OnResetIndexLocation" />
+                    </StackPanel>
+                    <TextBlock Text="更改后需重建索引生效；原索引库保留至新库建成为止。" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- 排除目录卡 -->
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="排除目录" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="这些目录不参与索引（默认含系统卷信息与回收站）。" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                    <ListView x:Name="ExcludeList" MaxHeight="160" SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnSpacing="8" Margin="0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding}" Style="{StaticResource AuxText}" VerticalAlignment="Center" />
+                                    <Button Grid.Column="1" Content="删除" Click="OnRemoveExclude" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="ExcludeInput" PlaceholderText="输入目录名或完整路径" />
+                        <Button Grid.Column="1" Content="添加" Click="OnAddExclude" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- 内容索引优先级卡 -->
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="内容索引后台优先级" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="内容索引不与前台争抢资源；空闲档仅在系统空闲时构建。" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                    <ComboBox x:Name="PriorityBox" SelectionChanged="OnPriorityChanged">
+                        <ComboBoxItem Content="仅空闲时（推荐）" Tag="idle" IsSelected="True" />
+                        <ComboBoxItem Content="低优先级" Tag="low" />
+                        <ComboBoxItem Content="正常" Tag="normal" />
+                    </ComboBox>
+                </StackPanel>
+            </Border>
+
+            <!-- 主题卡 -->
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="主题" Style="{StaticResource BodyText}" />
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <RadioButton x:Name="ThemeShuimo" GroupName="theme" Content="水墨（浅色）" Checked="OnThemeChanged" Tag="shuimo" />
+                        <RadioButton x:Name="ThemeMobai" GroupName="theme" Content="墨白（深色）" Checked="OnThemeChanged" Tag="mobai" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- 快速搜索窗卡 -->
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="快速搜索窗" Style="{StaticResource BodyText}" />
+                    <ToggleSwitch x:Name="QuickStartupToggle" Header="启动时显示快速搜索窗" Toggled="OnQuickStartupToggled" />
+                    <TextBlock Text="全局快捷键：Alt+Q 唤起 / 隐藏（当前版本固定，可自定义项随后续版本开放）" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- 存储位置卡（数据目录只读说明） -->
             <Border Style="{StaticResource CardBorder}">
                 <StackPanel Spacing="8">
                     <TextBlock Text="存储位置" Style="{StaticResource BodyText}" />
@@ -46,6 +122,16 @@
                 <StackPanel Spacing="8">
                     <TextBlock Text="开机自启" Style="{StaticResource BodyText}" />
                     <ToggleSwitch x:Name="StartupToggle" Toggled="OnStartupToggled" />
+                </StackPanel>
+            </Border>
+
+            <!-- 关于卡 -->
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="关于" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="TaoSearch · 版本 0.1.0.6" Style="{StaticResource AuxText}" />
+                    <TextBlock Text="无广告、无捆绑、数据全本地。" Style="{StaticResource AuxText}" />
+                    <Button Content="检查更新" Click="OnCheckUpdate" />
                 </StackPanel>
             </Border>
         </StackPanel>

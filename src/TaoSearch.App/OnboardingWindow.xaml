@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="TaoSearch.App.OnboardingWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="TaoSearch 首次使用引导">
+
+    <Grid x:Name="Root" Background="{ThemeResource Surface2Brush}">
+        <!-- 步骤点 -->
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,24,0,0">
+            <Border x:Name="Dot1" Width="24" Height="8" CornerRadius="4" Background="{ThemeResource AzureBrush}" />
+            <Border x:Name="Dot2" Width="8" Height="8" CornerRadius="4" Background="{ThemeResource LineBrush}" />
+            <Border x:Name="Dot3" Width="8" Height="8" CornerRadius="4" Background="{ThemeResource LineBrush}" />
+        </StackPanel>
+
+        <!-- 步骤 1：欢迎 -->
+        <StackPanel x:Name="Step1" Spacing="16" MaxWidth="720" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="32">
+            <StackPanel Orientation="Horizontal" Spacing="16">
+                <Border Width="64" Height="64" CornerRadius="16" Background="{ThemeResource AzurewBrush}">
+                    <TextBlock Text="🔍" FontSize="28" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <StackPanel Spacing="4" VerticalAlignment="Center">
+                    <TextBlock Text="欢迎使用 TaoSearch" FontSize="20" FontWeight="SemiBold" Foreground="{ThemeResource InkBrush}" />
+                    <TextBlock Text="毫秒级文件名搜索 · 本地全文内容检索 · 数据不出本机" FontSize="12" Foreground="{ThemeResource Ink3Brush}" />
+                </StackPanel>
+            </StackPanel>
+            <TextBlock Text="三步完成初始化：选择索引位置与范围 → 建立文件名索引（约 60 秒）→ 开始使用。内容索引将在后台低优先级构建，不占用前台资源。"
+                       TextWrapping="Wrap" FontSize="14" Foreground="{ThemeResource InkBrush}" />
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button x:Name="SkipButton" Content="稍后再说" Click="OnSkip" />
+                <Button x:Name="NextButton" Content="下一步" Style="{StaticResource AccentButtonStyle}" Click="OnNext" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- 步骤 2：索引位置与范围 -->
+        <StackPanel x:Name="Step2" Spacing="16" MaxWidth="720" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="32" Visibility="Collapsed">
+            <TextBlock Text="索引位置与范围" FontSize="16" FontWeight="SemiBold" Foreground="{ThemeResource InkBrush}" />
+            <StackPanel Spacing="8">
+                <TextBlock Text="索引库存放位置（默认 D 盘，可随时在设置中更改）" FontSize="12" Foreground="{ThemeResource Ink3Brush}" />
+                <RadioButton x:Name="LocD" GroupName="obloc" IsChecked="True" Content="D:\TaoSearch\Index" />
+                <RadioButton x:Name="LocAppData" GroupName="obloc" Content="C:\Users\用户\AppData\Local\TaoSearch\Index" />
+            </StackPanel>
+            <StackPanel Spacing="8">
+                <TextBlock Text="索引范围" FontSize="12" Foreground="{ThemeResource Ink3Brush}" />
+                <RadioButton x:Name="ScopeD" GroupName="obscope" IsChecked="True" Content="整个 D 盘（推荐）" />
+                <RadioButton x:Name="ScopeUser" GroupName="obscope" Content="仅「下载」「文档」「桌面」" />
+                <RadioButton x:Name="ScopeCustom" GroupName="obscope" Content="自定义目录（下一步可在设置中细化）" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button Content="上一步" Click="OnBack" />
+                <Button x:Name="StartButton" Content="开始建立索引" Style="{StaticResource AccentButtonStyle}" Click="OnStartIndexing" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- 步骤 3：建索引进度 -->
+        <StackPanel x:Name="Step3" Spacing="16" MaxWidth="720" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="32" Visibility="Collapsed">
+            <TextBlock Text="正在建立文件名索引" FontSize="16" FontWeight="SemiBold" Foreground="{ThemeResource InkBrush}" />
+            <ProgressBar x:Name="IndexProgress" Maximum="100" Value="0" Height="8" />
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="ProgressCount" Text="0 个文件" FontSize="12" Foreground="{ThemeResource Ink2Brush}" />
+                <TextBlock x:Name="ProgressPct" Grid.Column="1" Text="0%" FontSize="12" Foreground="{ThemeResource Ink2Brush}" />
+            </Grid>
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="方式" FontSize="12" Foreground="{ThemeResource Ink3Brush}" />
+                <TextBlock Grid.Column="1" Text="MFT 直读（NTFS 主文件表）" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource InkBrush}" HorizontalAlignment="Right" />
+            </Grid>
+            <TextBlock x:Name="DoneNote" Text="建立期间可最小化窗口，不影响其他工作。" FontSize="12" Foreground="{ThemeResource Ink3Brush}" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button x:Name="PauseButton" Content="暂停" Click="OnPause" />
+                <Button x:Name="FinishButton" Content="完成，进入 TaoSearch" Style="{StaticResource AccentButtonStyle}" Click="OnFinish" Visibility="Collapsed" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,0 +1,42 @@
+name: gate2-uiauto
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tests/uiauto/**'
+      - '.github/workflows/gate2-uiauto.yml'
+
+jobs:
+  gate2:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 发布服务与壳层（框架依赖 + WinAppSDK 自包含）
+        shell: pwsh
+        run: |
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          Get-ChildItem publish/TaoSearch.*.exe | ForEach-Object { Write-Host $_.Name }
+
+      - name: 关2 界面自动化清单（UIA 逐项点通 + 截图留证）
+        shell: pwsh
+        run: ./tests/uiauto/gate2-run.ps1 -PublishDir "$PWD/publish" -EvidenceDir "$PWD/qa-evidence"
+
+      - name: 上传关2证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate2-evidence
+          path: qa-evidence/**
+          if-no-files-found: warn
+          retention-days: 14
