@@ -1,6 +1,6 @@
 ﻿# 关2「能不能用」界面自动化清单（主班补位版 v2，2026-11-22 全面覆盖令）
 # 口径：真 Windows 桌面会话内启动服务+壳层，UIA 逐项点通，每步截图留证。
-# v3（2026-11-22 老板追问「托盘？视觉观感？」）：新增托盘命令链路 G2-20（关窗进托盘→右键回调→打开主窗复现）、
+# v4（2026-11-22 老板令「必须全面覆盖无死角」）：对账补齐 G2-22~G2-27（内容页签全文搜索/快速窗输入即搜/设置页按钮群/Alt+Q 真实按键/单实例转发/托盘退出）；v3 托盘命令链路 G2-20（关窗进托盘→右键回调→打开主窗复现）、
 #   托盘「快速搜索」拉起快速窗并截图（G2-21）；v2：引导全流程（G2-11~15）、热键开关切换（G2-16）、托盘 UIA 探针（G2-17）、自启开关试切（G2-18）、引导跳过路径（G2-19）。
 # 严格项失败 → 退出码非零（关2 不通过）；INFO 项只记账不判红。
 # 用法: pwsh -File gate2-run.ps1 -PublishDir <publish目录> -EvidenceDir <证据目录>
@@ -409,6 +409,157 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
         }
     } catch { Check 'G2-20' "托盘命令链路异常: $_" $false $true }
 
+    # ---- 内容页签全文搜索（G2-22，全面覆盖令：核心差异点 UI 链路）----
+    Log '== 内容页签全文搜索 =='
+    try {
+        $tabOk = $false
+        try {
+            $tabC = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty, '内容')))
+            if ($tabC) {
+                try { ($tabC.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)).Toggle() | Out-Null; $tabOk = $true }
+                catch { try { ($tabC.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke(); $tabOk = $true } catch { Log "  内容页签切换模式不支持: $_" } }
+            }
+        } catch { Log "  内容页签定位异常: $_" }
+        Check 'G2-22a' '切换到内容页签' $tabOk $true
+        if ($tabOk) {
+            Start-Sleep -Seconds 1
+            $chipOk = $false
+            try {
+                $chip = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::NameProperty, '全部')))
+                $chipOk = ($null -ne $chip)
+            } catch { }
+            Check 'G2-22b' '内容页签筛选 chips 出现' $chipOk $true
+            $contentHit = $false
+            try {
+                $editC = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Edit)))
+                if ($editC) {
+                    ($editC.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue('smoke')
+                    foreach ($i in 1..15) {
+                        Start-Sleep -Seconds 2
+                        $items = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                            (New-Object System.Windows.Automation.PropertyCondition(
+                                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                                [System.Windows.Automation.ControlType]::ListItem)))
+                        if ($items.Count -gt 0) { $contentHit = $true; break }
+                    }
+                }
+            } catch { Log "  内容搜索异常: $_" }
+            Check 'G2-22c' '全文关键词 smoke 命中结果列表' $contentHit $true
+            Screenshot 'G2-22-content-search'
+        }
+    } catch { Check 'G2-22' "内容页签异常: $_" $false $true }
+
+    # ---- 快速窗输入即搜（G2-23，全面覆盖令）----
+    Log '== 快速窗输入即搜 =='
+    try {
+        $quickHit = $false
+        if ($quick) {
+            try {
+                $qEdit = $quick.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                        [System.Windows.Automation.ControlType]::Edit)))
+                if ($qEdit) {
+                    ($qEdit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue('readme')
+                    foreach ($i in 1..15) {
+                        Start-Sleep -Seconds 2
+                        $qItems = $quick.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                            (New-Object System.Windows.Automation.PropertyCondition(
+                                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                                [System.Windows.Automation.ControlType]::ListItem)))
+                        if ($qItems.Count -gt 0) { $quickHit = $true; break }
+                    }
+                }
+            } catch { Log "  快速窗搜索异常: $_" }
+        }
+        Check 'G2-23' '快速窗输入 readme 出结果' $quickHit $true
+        if ($quick) { Screenshot 'G2-23-quick-search' }
+    } catch { Check 'G2-23' "快速窗异常: $_" $false $true }
+
+    # ---- 设置页操作按钮群（G2-27，全面覆盖令）----
+    Log '== 设置页操作按钮群 =='
+    try {
+        $nav2 = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::NameProperty, '设置')))
+        if ($nav2) { try { ($nav2.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select() } catch { try { ($nav2.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() } catch { } } }
+        Start-Sleep -Seconds 2
+        $pauseOk = $false
+        try {
+            $pb = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty, '暂停索引')))
+            if ($pb) {
+                ($pb.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+                Start-Sleep -Seconds 2
+                $rb = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::NameProperty, '恢复索引')))
+                if ($rb) {
+                    ($rb.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+                    Start-Sleep -Seconds 2
+                    $pb2 = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                        (New-Object System.Windows.Automation.PropertyCondition(
+                            [System.Windows.Automation.AutomationElement]::NameProperty, '暂停索引')))
+                    $pauseOk = ($null -ne $pb2)
+                }
+            }
+        } catch { Log "  暂停恢复异常: $_" }
+        Check 'G2-27a' '暂停/恢复索引切换生效（文案往返）' $pauseOk $true
+        $themeOk = $false
+        try {
+            $mobai = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty, '墨白（深色）')))
+            if ($mobai) {
+                ($mobai.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select()
+                Start-Sleep -Seconds 2
+                Screenshot 'G2-27-theme-dark'
+                $shuimo = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::NameProperty, '水墨（浅色）')))
+                if ($shuimo) { ($shuimo.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select(); Start-Sleep -Seconds 1 }
+                $themeOk = $true
+            }
+        } catch { Log "  主题切换异常: $_" }
+        Check 'G2-27b' '主题切换可操作（深色截图留证）' $themeOk $true
+        $locOk = $false
+        try {
+            $locBtn = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty, '更改位置…')))
+            $locOk = ($null -ne $locBtn)
+        } catch { }
+        Check 'G2-27c' '索引库位置按钮存在' $locOk $true
+        $rebuildOk = $false
+        try {
+            $rbtn = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty, '重建索引')))
+            if ($rbtn) {
+                ($rbtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+                foreach ($i in 1..30) {
+                    Start-Sleep -Seconds 2
+                    $texts2 = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                        (New-Object System.Windows.Automation.PropertyCondition(
+                            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                            [System.Windows.Automation.ControlType]::Text)))
+                    $joined = (@($texts2 | ForEach-Object { $_.Current.Name }) -join ' ')
+                    if ($joined -match '就绪') { $rebuildOk = $true; break }
+                }
+            }
+        } catch { Log "  重建索引异常: $_" }
+        Check 'G2-27d' '重建索引后状态回就绪' $rebuildOk $true
+        Screenshot 'G2-27-settings-actions'
+    } catch { Check 'G2-27' "设置页按钮群异常: $_" $false $true }
+
     Screenshot 'G2-99-final'
 }
 else {
@@ -452,6 +603,91 @@ foreach ($i in 1..15) {
     } catch { }
 }
 Check 'G2-19' '引导「稍后再说」跳过直达主窗口' $skipOk $true
+Screenshot 'G2-19-skip-main'
+
+# ---- 单实例转发（G2-26，全面覆盖令）----
+Log '== 单实例转发 =='
+try {
+    $app3 = Start-Process -FilePath "$PublishDir\TaoSearch.App.exe" -ArgumentList '--search','readme' -WorkingDirectory $PublishDir -PassThru `
+        -RedirectStandardOutput "$EvidenceDir\app3.out.log" -RedirectStandardError "$EvidenceDir\app3.log"
+    Start-Sleep -Seconds 6
+    $app3.Refresh()
+    Check 'G2-26a' '第二启动实例转发后自行退出' $app3.HasExited $true
+    $app2.Refresh()
+    Check 'G2-26b' '原实例仍存活（未退出）' (-not $app2.HasExited) $true
+    $val2 = ''
+    $fwd = $false
+    try {
+        $win2 = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
+            (New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch')))
+        if ($win2) {
+            $ed2 = $win2.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Edit)))
+            if ($ed2) { $val2 = ($ed2.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).Value }
+            $fwd = ($val2 -eq 'readme')
+        }
+    } catch { Log "  转发回读异常: $_" }
+    Check 'G2-26c' "转发后原实例搜索框=readme（回读=$val2）" $fwd $true
+} catch { Check 'G2-26' "单实例转发异常: $_" $false $true }
+
+# ---- Alt+Q 真实按键（G2-25，全面覆盖令：全局热键实测）----
+Log '== Alt+Q 真实按键 =='
+try {
+    [System.Windows.Forms.SendKeys]::SendWait('%q')
+    $quickHot = $null
+    foreach ($i in 1..10) {
+        Start-Sleep -Seconds 1
+        try {
+            $quickHot = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch 快速搜索')))
+            if ($quickHot) { break }
+        } catch { }
+    }
+    Check 'G2-25' 'Alt+Q 真实按键唤起快速搜索窗' ($null -ne $quickHot) $true
+    if ($quickHot) { Screenshot 'G2-25-hotkey-quick' }
+} catch { Check 'G2-25' "Alt+Q 按键异常: $_" $false $true }
+
+# ---- 托盘「退出」命令（G2-24，全面覆盖令：退出链路实测）----
+Log '== 托盘退出 =='
+try {
+    if (-not ('G2Tray.Native' -as [type])) {
+        Add-Type -Namespace G2Tray -Name Native -MemberDefinition '
+[DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wp, IntPtr lp);
+public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+[DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassNameW(IntPtr hWnd, System.Text.StringBuilder sb, int max);
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+public static System.Collections.Generic.List<string> ListWindows(uint pid) {
+    var list = new System.Collections.Generic.List<string>();
+    EnumWindows(delegate(IntPtr h, IntPtr l) {
+        var sb = new System.Text.StringBuilder(256);
+        GetClassNameW(h, sb, 256);
+        uint p; GetWindowThreadProcessId(h, out p);
+        if (p == pid) list.Add(sb.ToString() + "|" + h.ToString());
+        return true;
+    }, IntPtr.Zero);
+    return list;
+}'
+    }
+    $wins2 = [G2Tray.Native]::ListWindows([uint32]$app2.Id)
+    $tray2 = [IntPtr]::Zero
+    foreach ($w in $wins2) { if ($w.StartsWith('TaoSearchTrayWnd|')) { $tray2 = [IntPtr][long]$w.Split('|')[1] } }
+    Check 'G2-24a' '第二实例托盘隐藏窗存在' ($tray2 -ne [IntPtr]::Zero) $true
+    if ($tray2 -ne [IntPtr]::Zero) {
+        [G2Tray.Native]::PostMessageW($tray2, 0x0111, [IntPtr]4, [IntPtr]::Zero) | Out-Null
+        $exited = $false
+        foreach ($i in 1..15) {
+            Start-Sleep -Seconds 1
+            $app2.Refresh()
+            if ($app2.HasExited) { $exited = $true; break }
+        }
+        Check 'G2-24' '托盘「退出」命令后进程结束' $exited $true
+    }
+} catch { Check 'G2-24' "托盘退出异常: $_" $false $true }
 Screenshot 'G2-19-skip-main'
 try { $app2.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 2; if (-not $app2.HasExited) { $app2.Kill() } } catch { }
 

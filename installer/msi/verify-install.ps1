@@ -68,6 +68,10 @@ if ($PublishDir -and (Test-Path $PublishDir)) {
 $arp = Get-ChildItem $runKey -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq "TaoSearch" }
 Assert ($null -ne $arp) "卸载注册项已登记"
 Assert (Test-Path $ctxKey) "右键菜单已注册"
+$svc = Get-Service -Name 'TaoSearchService' -ErrorAction SilentlyContinue
+Assert ($null -ne $svc) "TaoSearchService 服务已注册"
+Assert ($svc.Status -eq 'Running') ("TaoSearchService 运行中，实际: " + $svc.Status)
+
 Log "STEP2 文件与注册表验证通过"
 
 # ---- 第 3 步: 启动核心页 ----
@@ -155,5 +159,8 @@ Assert (-not (Test-Path (Join-Path $InstallDir $exeName))) "主程序文件已�
 $arpAfter = Get-ChildItem $runKey -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq "TaoSearch" }
 Assert ($null -eq $arpAfter) "卸载注册项已清除"
 Assert (-not (Test-Path $ctxKey)) "右键菜单已清除"
+$svcU = Get-Service -Name 'TaoSearchService' -ErrorAction SilentlyContinue
+Assert ($null -eq $svcU) "TaoSearchService 服务已随卸载移除"
+
 Log "STEP4 卸载干净验证通过"
 Log "四步模拟安装验证全部通过"
