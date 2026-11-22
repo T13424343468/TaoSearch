@@ -38,6 +38,19 @@ function Screenshot([string]$name) {
     } catch { Log "  截图失败 $name : $_" }
 }
 
+function Close-UiaDialog([System.Windows.Automation.AutomationElement]$w) {
+    # 关闭可能打开的 ContentDialog（关闭按钮文案「好」），模拟真实用户先关弹窗再操作
+    try {
+        $okBtn = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::NameProperty, '好')))
+        if ($okBtn) {
+            try { ($okBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() } catch { }
+            Start-Sleep -Milliseconds 800
+        }
+    } catch { }
+}
+
 function Invoke-UiaButton([System.Windows.Automation.AutomationElement]$w, [string]$label, [string]$id, [bool]$strict) {
     try {
         $btnCond = New-Object System.Windows.Automation.PropertyCondition(
@@ -499,12 +512,14 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
             if ($pb) {
                 ($pb.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
                 Start-Sleep -Seconds 2
+                Close-UiaDialog $win
                 $rb = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
                     (New-Object System.Windows.Automation.PropertyCondition(
                         [System.Windows.Automation.AutomationElement]::NameProperty, '恢复索引')))
                 if ($rb) {
                     ($rb.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
                     Start-Sleep -Seconds 2
+                    Close-UiaDialog $win
                     $pb2 = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
                         (New-Object System.Windows.Automation.PropertyCondition(
                             [System.Windows.Automation.AutomationElement]::NameProperty, '暂停索引')))
@@ -545,6 +560,8 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
                     [System.Windows.Automation.AutomationElement]::NameProperty, '重建索引')))
             if ($rbtn) {
                 ($rbtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+                Start-Sleep -Seconds 2
+                Close-UiaDialog $win
                 foreach ($i in 1..30) {
                     Start-Sleep -Seconds 2
                     $texts2 = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants,

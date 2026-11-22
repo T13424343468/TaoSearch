@@ -183,14 +183,31 @@ public sealed partial class SettingsPage : Page
         await ShowDialog("检查更新", $"当前版本 {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.1.0"}。更新检查服务将随正式安装器一同提供。");
     }
 
+    private bool _dialogOpen;
+
     private async Task ShowDialog(string title, string content)
     {
-        await new ContentDialog
+        // 0.1.0.12：弹窗未关时再次触发（双击/自动化连点）会因
+        // 「Only a single ContentDialog can be open at any time」未处理异常崩溃，加守卫
+        if (_dialogOpen) return;
+        _dialogOpen = true;
+        try
         {
-            Title = title,
-            Content = content,
-            CloseButtonText = "好",
-            XamlRoot = XamlRoot,
-        }.ShowAsync();
+            await new ContentDialog
+            {
+                Title = title,
+                Content = content,
+                CloseButtonText = "好",
+                XamlRoot = XamlRoot,
+            }.ShowAsync();
+        }
+        catch (Exception)
+        {
+            // 弹窗被系统关闭等场景不透传英文异常，也不允许崩壳
+        }
+        finally
+        {
+            _dialogOpen = false;
+        }
     }
 }
