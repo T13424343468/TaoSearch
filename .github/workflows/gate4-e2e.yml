@@ -1,0 +1,89 @@
+name: gate4-e2e
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tests/Gate4Harness/**'
+      - '.github/workflows/gate4-e2e.yml'
+
+jobs:
+  gate4:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 发布服务 + 编译关4装置
+        shell: pwsh
+        run: |
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          dotnet build tests/Gate4Harness/Gate4Harness.csproj -c Release --nologo
+
+      - name: 生成确定性语料（复用关3口径：247 文件）
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "tests/Gate3Harness/bin/Release/net10.0/Gate3Harness.dll")) { dotnet build tests/Gate3Harness/Gate3Harness.csproj -c Release --nologo }
+          dotnet tests/Gate3Harness/bin/Release/net10.0/Gate3Harness.dll generate "$PWD/qa-corpus"
+
+      - name: 关4 复杂场景实弹（同 step：并发/暂停恢复重建/订阅退订/一致性 → 落基线）
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "$PWD/publish/TaoSearch.Service.exe" -ArgumentList "`"$PWD/qa-corpus`"" `
+            -WorkingDirectory "$PWD/publish" -WindowStyle Hidden `
+            -RedirectStandardOutput "$PWD/service.log" -RedirectStandardError "$PWD/service.err.log"
+          Start-Sleep -Seconds 2
+          $svc = Get-Process TaoSearch.Service -ErrorAction SilentlyContinue
+          if (-not $svc) { Write-Host "::error::服务进程未存活"; Get-Content "$PWD/service.log" -ErrorAction SilentlyContinue; Get-Content "$PWD/service.err.log" -ErrorAction SilentlyContinue; exit 1 }
+          dotnet tests/Gate4Harness/bin/Release/net10.0/Gate4Harness.dll run --report "$PWD/gate4-results.txt" --baseline "$PWD/gate4-baseline.json" --timeout-sec 240
+          $rc = $LASTEXITCODE
+          Write-Host "--- gate4-results.txt ---"; Get-Content "$PWD/gate4-results.txt" -ErrorAction SilentlyContinue
+          Write-Host "--- gate4-baseline.json ---"; Get-Content "$PWD/gate4-baseline.json" -ErrorAction SilentlyContinue
+          if ($rc -ne 0) { Write-Host "--- service.log ---"; Get-Content "$PWD/service.log" -ErrorAction SilentlyContinue; Write-Host "--- service.err.log ---"; Get-Content "$PWD/service.err.log" -ErrorAction SilentlyContinue }
+          exit $rc
+
+      - name: 强杀服务 → 重启（快照恢复路径）
+        shell: pwsh
+        run: |
+          Stop-Process -Name TaoSearch.Service -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+          Start-Process -FilePath "$PWD/publish/TaoSearch.Service.exe" -ArgumentList "`"$PWD/qa-corpus`"" `
+            -WorkingDirectory "$PWD/publish" -WindowStyle Hidden `
+            -RedirectStandardOutput "$PWD/service2.log" -RedirectStandardError "$PWD/service2.err.log"
+          Start-Sleep -Seconds 2
+          $svc = Get-Process TaoSearch.Service -ErrorAction SilentlyContinue
+          if (-not $svc) { Write-Host "::error::重启后服务进程未存活"; Get-Content "$PWD/service2.log" -ErrorAction SilentlyContinue; Get-Content "$PWD/service2.err.log" -ErrorAction SilentlyContinue; exit 1 }
+          Write-Host "服务已重启 pid=$($svc.Id)"
+
+      - name: 重启恢复核对（基线比对）
+        shell: pwsh
+        run: |
+          dotnet tests/Gate4Harness/bin/Release/net10.0/Gate4Harness.dll verify-restart --baseline "$PWD/gate4-baseline.json" --report "$PWD/gate4-restart.txt" --timeout-sec 240
+          $rc = $LASTEXITCODE
+          Write-Host "--- gate4-restart.txt ---"; Get-Content "$PWD/gate4-restart.txt" -ErrorAction SilentlyContinue
+          Write-Host "--- service2.log ---"; Get-Content "$PWD/service2.log" -ErrorAction SilentlyContinue
+          if ($rc -ne 0) { Write-Host "--- service2.err.log ---"; Get-Content "$PWD/service2.err.log" -ErrorAction SilentlyContinue }
+          exit $rc
+
+      - name: 上传关4证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate4-evidence
+          path: |
+            gate4-results.txt
+            gate4-baseline.json
+            gate4-restart.txt
+            service.log
+            service.err.log
+            service2.log
+            service2.err.log
+          if-no-files-found: warn
+          retention-days: 14
