@@ -39,26 +39,34 @@ bool ServiceAlive()
 async Task<(NamedPipeClientStream pipe, byte[]? resp, string note)> RawRoundtripAsync(byte[] wire, bool readReply, int timeoutMs = 15000)
 {
     var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-    await pipe.ConnectAsync(10000);
-    await pipe.WriteAsync(wire);
-    await pipe.FlushAsync();
-    byte[]? resp = null;
-    string note = "sent";
-    if (readReply)
+    try
     {
-        try
+        await pipe.ConnectAsync(10000);
+        await pipe.WriteAsync(wire);
+        await pipe.FlushAsync();
+        byte[]? resp = null;
+        string note = "sent";
+        if (readReply)
         {
-            var header = new byte[12];
-            await ReadExactlyAsync(pipe, header, timeoutMs);
-            int payloadLen = BitConverter.ToInt32(header, 0);
-            var payload = new byte[payloadLen];
-            await ReadExactlyAsync(pipe, payload, timeoutMs);
-            resp = payload;
-            note = $"reply {payloadLen}B";
+            try
+            {
+                var header = new byte[12];
+                await ReadExactlyAsync(pipe, header, timeoutMs);
+                int payloadLen = BitConverter.ToInt32(header, 0);
+                var payload = new byte[payloadLen];
+                await ReadExactlyAsync(pipe, payload, timeoutMs);
+                resp = payload;
+                note = $"reply {payloadLen}B";
+            }
+            catch (Exception ex) { note = $"no-reply ({ex.GetType().Name})"; }
         }
-        catch (Exception ex) { note = $"no-reply ({ex.GetType().Name})"; }
+        return (pipe, resp, note);
     }
-    return (pipe, resp, note);
+    finally
+    {
+        // 用完即关：让服务端会话干净结束、管道实例及时释放（泄漏连接会让实例逼近上限、行为失真）
+        await pipe.DisposeAsync();
+    }
 }
 
 static async Task ReadExactlyAsync(Stream s, byte[] buffer, int timeoutMs)
