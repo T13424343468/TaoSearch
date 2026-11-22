@@ -49,7 +49,7 @@ jobs:
           if ($rc -ne 0) { Write-Host "--- service.log ---"; Get-Content "$PWD/service.log" -ErrorAction SilentlyContinue; Write-Host "--- service.err.log ---"; Get-Content "$PWD/service.err.log" -ErrorAction SilentlyContinue }
           exit $rc
 
-      - name: 强杀服务 → 重启（快照恢复路径）
+      - name: 强杀 → 重启 → 基线核对（同 step：runner 会在 step 间清理子进程树，跨 step 服务必死）
         shell: pwsh
         run: |
           Stop-Process -Name TaoSearch.Service -Force -ErrorAction SilentlyContinue
@@ -61,10 +61,6 @@ jobs:
           $svc = Get-Process TaoSearch.Service -ErrorAction SilentlyContinue
           if (-not $svc) { Write-Host "::error::重启后服务进程未存活"; Get-Content "$PWD/service2.log" -ErrorAction SilentlyContinue; Get-Content "$PWD/service2.err.log" -ErrorAction SilentlyContinue; exit 1 }
           Write-Host "服务已重启 pid=$($svc.Id)"
-
-      - name: 重启恢复核对（基线比对）
-        shell: pwsh
-        run: |
           dotnet tests/Gate4Harness/bin/Release/net10.0/Gate4Harness.dll verify-restart --baseline "$PWD/gate4-baseline.json" --report "$PWD/gate4-restart.txt" --timeout-sec 240
           $rc = $LASTEXITCODE
           Write-Host "--- gate4-restart.txt ---"; Get-Content "$PWD/gate4-restart.txt" -ErrorAction SilentlyContinue
