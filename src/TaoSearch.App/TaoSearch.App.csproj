@@ -11,8 +11,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Platforms>x64</Platforms>
-    <Version>0.1.0.7</Version>
-    <FileVersion>0.1.0.7</FileVersion>
+    <Version>0.1.0.8</Version>
+    <FileVersion>0.1.0.8</FileVersion>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <DefaultLanguage>zh-CN</DefaultLanguage>
     <ApplicationManifest>app.manifest</ApplicationManifest>

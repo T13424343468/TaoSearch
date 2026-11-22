@@ -76,7 +76,10 @@ public sealed partial class OnboardingWindow : Window
         }
         catch (Exception ex)
         {
-            DoneNote.Text = $"索引服务未连接：{ex.Message}。文件名搜索将在服务可用后自动开始。";
+            // 真机口径：服务自动拉起后首次建索引期间管道未监听（先建后听），超时属预期，轮询会接续
+            DoneNote.Text = ex.Message.Contains("timed out") || ex.Message.Contains("超时")
+                ? "索引服务已启动，正在首次建立索引（仅一次，视文件数量需几分钟），完成后自动开始。"
+                : $"索引服务未连接：{ex.Message}。文件名搜索将在服务可用后自动开始。";
         }
         StartPolling();
     }
