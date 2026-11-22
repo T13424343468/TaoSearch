@@ -1,0 +1,58 @@
+name: gate5-fuzz
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tests/Gate5Fuzz/**'
+      - '.github/workflows/gate5-fuzz.yml'
+
+jobs:
+  gate5:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 发布服务 + 编译关5装置与关3语料器
+        shell: pwsh
+        run: |
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          dotnet build tests/Gate5Fuzz/Gate5Fuzz.csproj -c Release --nologo
+          dotnet build tests/Gate3Harness/Gate3Harness.csproj -c Release --nologo
+
+      - name: 关5 暴力实弹（同 step：畸形帧/恶意载荷/并发 monkey → 韧性终验）
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "qa-corpus")) { dotnet tests/Gate3Harness/bin/Release/net10.0/Gate3Harness.dll generate "$PWD/qa-corpus" }
+          Start-Process -FilePath "$PWD/publish/TaoSearch.Service.exe" -ArgumentList "`"$PWD/qa-corpus`"" `
+            -WorkingDirectory "$PWD/publish" -WindowStyle Hidden `
+            -RedirectStandardOutput "$PWD/service.log" -RedirectStandardError "$PWD/service.err.log"
+          Start-Sleep -Seconds 2
+          $svc = Get-Process TaoSearch.Service -ErrorAction SilentlyContinue
+          if (-not $svc) { Write-Host "::error::服务进程未存活"; Get-Content "$PWD/service.log" -ErrorAction SilentlyContinue; Get-Content "$PWD/service.err.log" -ErrorAction SilentlyContinue; exit 1 }
+          dotnet tests/Gate5Fuzz/bin/Release/net10.0/Gate5Fuzz.dll run --report "$PWD/gate5-results.txt"
+          $rc = $LASTEXITCODE
+          Write-Host "--- gate5-results.txt ---"; Get-Content "$PWD/gate5-results.txt" -ErrorAction SilentlyContinue
+          Write-Host "--- service.log ---"; Get-Content "$PWD/service.log" -ErrorAction SilentlyContinue
+          Write-Host "--- service.err.log ---"; Get-Content "$PWD/service.err.log" -ErrorAction SilentlyContinue
+          exit $rc
+
+      - name: 上传关5证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate5-evidence
+          path: |
+            gate5-results.txt
+            service.log
+            service.err.log
+          if-no-files-found: warn
+          retention-days: 14
