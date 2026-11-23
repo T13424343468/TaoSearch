@@ -59,8 +59,8 @@ public class BranchCompletionTests
         var exe = Path.Combine(AppContext.BaseDirectory, "TaoSearch.Service.exe");
         if (OperatingSystem.IsWindows())
         {
-            // Windows：占位服务用真实 PE（cmd 副本）——非 PE 文件 Process.Start 抛 Win32Exception 被吞，走不到等待环（windows-ci 真机实测）
-            File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), exe, overwrite: true);
+            // Windows：占位服务用真实 PE（hostname 副本，秒退）——非 PE 文件 Process.Start 抛 Win32Exception 被吞，走不到等待环（windows-ci 真机实测）
+            File.Copy(Path.Combine(Environment.SystemDirectory, "hostname.exe"), exe, overwrite: true);
         }
         else
         {
@@ -96,8 +96,8 @@ public class BranchCompletionTests
         var exe = Path.Combine(AppContext.BaseDirectory, "TaoSearch.Service.exe");
         if (OperatingSystem.IsWindows())
         {
-            // Windows：占位服务用真实 PE（cmd 副本）——非 PE 文件 Process.Start 抛 Win32Exception 被吞，走不到等待环（windows-ci 真机实测）
-            File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), exe, overwrite: true);
+            // Windows：占位服务用真实 PE（hostname 副本，秒退）——非 PE 文件 Process.Start 抛 Win32Exception 被吞，走不到等待环（windows-ci 真机实测）
+            File.Copy(Path.Combine(Environment.SystemDirectory, "hostname.exe"), exe, overwrite: true);
         }
         else
         {
@@ -111,7 +111,15 @@ public class BranchCompletionTests
             await ServiceSupervisor.EnsureRunningAsync(); // 无取消 → 等 15 秒死线自然到期
             Assert.True(sw.ElapsedMilliseconds >= 14_000, $"deadline exit expected, took {sw.ElapsedMilliseconds}ms");
         }
-        finally { File.Delete(exe); }
+        finally
+        {
+            // 兜底：清掉可能残留的占位进程再删文件（Windows 上运行中的 exe 文件被锁）
+            foreach (var proc in System.Diagnostics.Process.GetProcessesByName("TaoSearch.Service"))
+            {
+                try { proc.Kill(); } catch { /* 已退出 */ }
+            }
+            File.Delete(exe);
+        }
     }
 
     private static void ResetAttempted()
