@@ -1,4 +1,5 @@
-﻿using TaoSearch.Kernel.Contracts;
+﻿using System.Runtime.InteropServices;
+using TaoSearch.Kernel.Contracts;
 using TaoSearch.Kernel.FsIndex;
 using Xunit;
 using Xunit.Abstractions;
@@ -162,7 +163,97 @@ public sealed class RealVolumeTests
         try { Directory.Delete(uncDir, true); } catch (Exception) { }
     }
 
+    [Fact]
+    public void RealVolume_DiagnosticProbe_FsctlEvidence()
+    {
+        if (SkipOnNonWindows()) return;
+
+        // ① 提权状态与卷文件系统
+        if (OperatingSystem.IsWindows())
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            bool isAdmin = new System.Security.Principal.WindowsPrincipal(identity)
+                .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+            _output.WriteLine($"[probe] user={identity.Name} elevated={isAdmin}");
+        }
+        var fsName = new System.Text.StringBuilder(261);
+        bool volInfo = GetVolumeInformationW(@"C:\", 0, 0, out _, out _, out _, fsName, fsName.Capacity);
+        _output.WriteLine($"[probe] GetVolumeInformation C:\\ ok={volInfo} fs={(volInfo ? fsName.ToString() : "-")} err={Marshal.GetLastWin32Error()}");
+
+        // ② 卷设备句柄 vs 目录句柄：QUERY / ENUM 版本组合矩阵 / READ 全量出证
+        foreach (var (label, path) in new[] { ("volume", @"\\.\C:"), ("dir", @"C:\") })
+        {
+            using var h = CreateFileW(path, 0x80000000u, 3u, 0, 3, 0x02000000, 0);
+            if (h.IsInvalid)
+            {
+                _output.WriteLine($"[probe] open {label} {path} FAILED err={Marshal.GetLastWin32Error()}");
+                continue;
+            }
+            _output.WriteLine($"[probe] open {label} {path} ok");
+
+            var qbuf = new byte[64];
+            bool qok = DeviceIoControl(h, FsctlQueryUsnJournal, 0, 0, Pin(qbuf), (uint)qbuf.Length, out uint qret, 0);
+            _output.WriteLine($"[probe] {label} QUERY_USN_JOURNAL ok={qok} err={Marshal.GetLastWin32Error()} ret={qret}"
+                + (qok ? $" nextUsn={BitConverter.ToInt64(qbuf, 0)} journalId={BitConverter.ToUInt64(qbuf, 8)}" : ""));
+
+            foreach (var (lo, hi) in new[] { (0, 0), (2, 2), (2, 3), (0, 2) })
+            {
+                var input = new byte[12];
+                BitConverter.GetBytes(0L).CopyTo(input, 0);
+                BitConverter.GetBytes((ushort)lo).CopyTo(input, 8);
+                BitConverter.GetBytes((ushort)hi).CopyTo(input, 10);
+                var obuf = new byte[1 << 20];
+                bool eok = DeviceIoControl(h, FsctlEnumUsnData, Pin(input), 12, Pin(obuf), (uint)obuf.Length, out uint eret, 0);
+                _output.WriteLine($"[probe] {label} ENUM_USN_DATA v=({lo},{hi}) ok={eok} err={Marshal.GetLastWin32Error()} ret={eret}");
+            }
+
+            if (qok)
+            {
+                var rin = new byte[32];
+                BitConverter.GetBytes(BitConverter.ToUInt64(qbuf, 8)).CopyTo(rin, 0);   // JournalID = FirstUsn
+                BitConverter.GetBytes(BitConverter.ToInt64(qbuf, 0)).CopyTo(rin, 8);   // StartUsn = NextUsn
+                BitConverter.GetBytes(0xFFFFFFFFu).CopyTo(rin, 16);                     // ReasonMask
+                BitConverter.GetBytes(0u).CopyTo(rin, 20);                              // BytesToWaitFor
+                BitConverter.GetBytes(0UL).CopyTo(rin, 24);                             // Timeout
+                var rbuf = new byte[64 * 1024];
+                bool rok = DeviceIoControl(h, FsctlReadUsnJournal, Pin(rin), 32, Pin(rbuf), (uint)rbuf.Length, out uint rret, 0);
+                _output.WriteLine($"[probe] {label} READ_USN_JOURNAL v0-32B ok={rok} err={Marshal.GetLastWin32Error()} ret={rret}");
+            }
+        }
+
+        Assert.True(true);   // 诊断探针：只出证不判红，证据进日志随流水线归档
+    }
+
     private static void WithLock(Action f) { lock (_gate) f(); }
     private static T WithLock<T>(Func<T> f) { lock (_gate) return f(); }
     private static readonly object _gate = new();
+
+    // ---- 诊断探针自包含 P/Invoke（不依赖产品互操作层，证据单源） ----
+    private const uint FsctlEnumUsnData = 0x000900B4;
+    private const uint FsctlReadUsnJournal = 0x000900BB;
+    private const uint FsctlQueryUsnJournal = 0x000900F4;
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(
+        string lpFileName, uint dwDesiredAccess, uint dwShareMode, nint lpSecurityAttributes,
+        uint dwCreationDisposition, uint dwFlagsAndAttributes, nint hTemplateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool DeviceIoControl(
+        Microsoft.Win32.SafeHandles.SafeFileHandle hDevice, uint dwIoControlCode,
+        nint lpInBuffer, uint nInBufferSize, nint lpOutBuffer, uint nOutBufferSize,
+        out uint lpBytesReturned, nint lpOverlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool GetVolumeInformationW(
+        string lpRootPathName, nint lpVolumeNameBuffer, int nVolumeNameSize,
+        out int lpVolumeSerialNumber, out int lpMaximumComponentLength, out int lpFileSystemFlags,
+        System.Text.StringBuilder lpFileSystemNameBuffer, int nFileSystemNameSize);
+
+    private static nint Pin(byte[] array)
+    {
+        var h = System.Runtime.InteropServices.GCHandle.Alloc(array, System.Runtime.InteropServices.GCHandleType.Pinned);
+        try { return h.AddrOfPinnedObject(); }
+        finally { h.Free(); }
+    }
 }
