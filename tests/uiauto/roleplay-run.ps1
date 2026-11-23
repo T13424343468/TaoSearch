@@ -102,6 +102,21 @@ function Get-AppWin($proc) {
                 [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch')))
     } catch { return $null }
 }
+function Find-QuickWindow {
+    # 教训（gate2 + 扮演首轮 RP-P3 误判）：WinUI3 顶层窗在 UIA 树挂载点不一定是 RootElement 直接子级；
+    # 快速窗焦点丢失会自动隐藏，单次 FindFirst 会扑空。改轮询 10 秒 + Children 找不到降级全树搜索。
+    foreach ($i in 1..10) {
+        foreach ($scope in @([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.TreeScope]::Descendants)) {
+            try {
+                $q = $root.FindFirst($scope, (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch 快速搜索')))
+                if ($q) { return $q }
+            } catch { }
+        }
+        Start-Sleep -Seconds 1
+    }
+    return $null
+}
 function Get-Edit($win) {
     try {
         return $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
@@ -290,6 +305,35 @@ function Check-CrashLog([string]$phase) {
     }
 }
 $script:lastCrashSize = 0
+function Complete-Onboarding-Rp {
+    # 教训（扮演首轮 RP-D3）：坏设置→默认值→首启标记重置→引导窗重现，怪查询会打进引导窗。
+    # 引导窗出现时先走完（观察项记账），再回主窗做后续操作。返回 $true 表示确实重走了引导。
+    $ob = $null
+    foreach ($i in 1..10) {
+        try {
+            $ob = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch 首次使用引导')))
+            if ($ob) { break }
+        } catch { }
+        Start-Sleep -Seconds 2
+    }
+    if (-not $ob) { return $false }
+    Ledger '观察项：坏设置→默认值→重走引导（引导窗重现，先走完再继续）'
+    Screenshot 'RP-D2b-onboarding-again'
+    foreach ($step in @('下一步', '开始建立索引')) {
+        $btn = Find-ByName $ob $step
+        if ($btn) { Click-El $btn | Out-Null; Start-Sleep -Seconds 2 }
+    }
+    foreach ($i in 1..120) {
+        Start-Sleep -Seconds 3
+        $fin = Find-ByName $ob '完成，进入 TaoSearch'
+        if ($fin -and -not $fin.Current.IsOffscreen) { break }
+    }
+    $fin = Find-ByName $ob '完成，进入 TaoSearch'
+    if ($fin) { Click-El $fin | Out-Null; Start-Sleep -Seconds 3 }
+    return $true
+}
 
 # ================================================================
 # 画像一：小白用户（11.1 多路画像 1/3）——装完第一分钟的真实路径
@@ -415,10 +459,8 @@ if ($win) {
         Start-Sleep -Milliseconds 80
         [RP.Native]::keybd_event(0x51, 0, 2, [UIntPtr]::Zero)
         [RP.Native]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-        Start-Sleep -Seconds 2
-        $quick = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
-            (New-Object System.Windows.Automation.PropertyCondition(
-                [System.Windows.Automation.AutomationElement]::NameProperty, 'TaoSearch 快速搜索')))
+        Start-Sleep -Seconds 1
+        $quick = Find-QuickWindow
         if ($quick) {
             Ledger 'Alt+Q 快速窗唤起'
             Screenshot 'RP-P3-quick'
@@ -431,7 +473,7 @@ if ($win) {
             [RP.Native]::keybd_event(0x1B, 0, 0, [UIntPtr]::Zero)
             [RP.Native]::keybd_event(0x1B, 0, 2, [UIntPtr]::Zero)
             Start-Sleep -Seconds 1
-        } else { Flag 'RP-P3' 'Alt+Q 真实按键未唤起快速窗' $true }
+        } else { Flag 'RP-P3' 'Alt+Q 真实按键未唤起快速窗（10 秒轮询+全树降级仍未找到）' $true }
     } catch { Flag 'RP-P3b' "Alt+Q 按键异常: $_" $false }
     Check-CrashLog 'P-hotkey'
     # 设置页：暂停/恢复、重建索引
@@ -491,12 +533,15 @@ else {
 Check-CrashLog 'D-corrupt'
 # D3：乱试怪查询（真人乱输入 + 恶意探试）
 if ($win) {
+    # 坏设置→默认值可能重走引导（首轮 RP-D3-weird-queries.png 证实）：先走完引导再在主窗测
+    if (Complete-Onboarding-Rp) { $win = Get-AppWin $app }
     $weirdQueries = @('', ('x' * 500), '<>:"|?*', '😀😀😀 搜索', "'; DROP TABLE --", 'C:\Windows\system32', '..\..\..\etc\passwd', '   ')
     foreach ($q in $weirdQueries) {
         $label = if ($q.Length -gt 20) { $q.Substring(0, 20) + '…' } else { $q }
         try {
             $r = Search-Like-Human $win $q 10
-            Ledger "怪查询「$label」→ 命中 $($r[0])"
+            if ($r[0] -lt 0) { Ledger "怪查询「$label」→ 测量未取得结果（观察：$($r[1])），不计命中" }
+            else { Ledger "怪查询「$label」→ 命中 $($r[0])" }
             $app.Refresh()
             if ($app.HasExited) { Flag 'RP-D3' "怪查询「$label」致壳层退出" $true; $app = Start-App; $win = Get-AppWin $app }
         } catch { Flag 'RP-D3b' "怪查询「$label」异常: $_" $false }
