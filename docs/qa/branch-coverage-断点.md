@@ -70,3 +70,10 @@
    - **ENUM 到尾信号收口（7c19805，run 45138988742 验证）**：err=38(ERROR_HANDLE_EOF) 为枚举正常耗尽信号，按正常结束返回已累计 Ok 结果；扫描不再误判失败，但断言「应含 Windows 目录」炸出新红——已加断言前诊断出证（records/sinkCalls/首尾30名/winPrefixed），下一轮云端拿证据定位。
    - **USN reason 重命名位权威值定版（bddd735）**：winioctl.h 核对 RENAME_NEW_NAME=0x2000、RENAME_OLD_NAME=0x1000（原 0x4000/0x8000 实为 INDEXABLE_CHANGE/BASIC_INFO_CHANGE，真实重命名永不映射 Renamed）；run 45138988742 实测 Rename 用例独缺 Renamed 实锤，上一轮监听测试通过系 runner 偶发 0x4000 事件的运气。
    - 云测 run 记账：45136914514（ENUM (0,0) 首次返回记录）、45137561729（READ ok=True ret=65480 增量监听真机已通，仅剩 MFT 扫描 err=38 一红）、45138988742（err=38 收口生效，MFT 断言缺 Windows + Rename 缺 Renamed 两红）、45140065064（reason 权威值 + MFT 诊断出证，值守中）。
+
+9. **真卷分支覆盖收口（2026-11-23 16:xx 班，run 45141681605 全绿出账）**：
+   - **MftScanner 真卷分支**：真扫 C:\ 系统卷全路径（QUERY 取 NextUsn→ENUM 分批续扫→err=38 到尾收口→MoreData 扩容→元文件跳过→记录解析出证），云端管理员卷实跑通过。
+   - **UsnJournalListener 真卷分支**：四类事件真卷闭环（Created/Renamed/ContentModified/Deleted 实收）+ 不存在卷静默退出 + UNC 非卷句柄静默退出，全绿。
+   - **Program 进程级实测**：G-P1 首实例存活 / G-P2 互斥体挡第二实例（占用文案 UTF-8 取证匹配通过）/ G-P3 首实例不受影响 / G-P4 收尾，全过。
+   - **收口过程共炸出并修死 6 个到货即坏缺陷**：FSCTL 控制码错（b01ac23）、ENUM 入参布局错（24c8fc0/ad87639）、QUERY 应答偏移错（b01ac23）、READ 入参 40 字节序错（ad87639/b9f4097）、ENUM 到尾信号误判（7c19805）、USN reason 重命名位错（bddd735）+ ENUM 全量口径错（0dacf62，(0,0) 系 USN∈[0,0] 退化过滤，正解 HighUsn=NextUsn）+ 事件泵作用域错（0dacf62，非卷根挂整卷监听灌入根外文件）+ 输出编码错序（7982089，占用文案先于 UTF-8 设置）。
+   - **剩余缺口定性**：Linux 不可测的真卷/进程级两类已全部由云端管理员卷实跑出账；余下仅结构性不可达分支与插桩伪影（第 4、6 条归类停追）。100% 门禁口径下无「可测未测」分支。
