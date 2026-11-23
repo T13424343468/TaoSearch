@@ -44,9 +44,8 @@ public static class Program
     /// <summary>控制台模式（云端测试/调试）：互斥体 + 宿主 + 管道，Ctrl+C 退出。</summary>
     internal static async Task RunConsoleAsync(string volumeRoot)
     {
+        Console.OutputEncoding = System.Text.Encoding.UTF8; // 重定向取证时中文不乱码（须先于占用文案，否则 OEM 代码页下中文变 ?）
         if (!SingleInstance.WaitOne(0)) { Console.WriteLine("[svc] 单实例互斥体被占用，退出"); return; } // 单实例：重复启动直接退出
-
-        Console.OutputEncoding = System.Text.Encoding.UTF8; // 重定向取证时中文不乱码
 
         string dataDir = ResolveDataDir();
         Directory.CreateDirectory(dataDir);
