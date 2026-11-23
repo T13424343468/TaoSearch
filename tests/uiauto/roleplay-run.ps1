@@ -60,7 +60,7 @@ function Get-Luminance([string]$png) {
 # ---- UIA 助手（真人触控口径：真实点击/真实键入，禁接口直达） ----
 function Click-El($el) {
     try {
-        if (-not ('RPNative' -as [type])) {
+        if (-not ('RP.Native' -as [type])) {
             Add-Type -Namespace RP -Name Native -MemberDefinition '
 [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
 [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
@@ -71,10 +71,10 @@ function Click-El($el) {
             if ($rc.IsEmpty) { throw }
             $pt = New-Object System.Windows.Point(($rc.X + $rc.Width / 2), ($rc.Y + $rc.Height / 2))
         }
-        [RPNative]::SetCursorPos([int]$pt.X, [int]$pt.Y) | Out-Null
+        [RP.Native]::SetCursorPos([int]$pt.X, [int]$pt.Y) | Out-Null
         Start-Sleep -Milliseconds 200
-        [RPNative]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
-        [RPNative]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+        [RP.Native]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
+        [RP.Native]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
         return $true
     } catch { Log "  点击失败: $_"; return $false }
 }
@@ -163,7 +163,9 @@ Log '== 录屏已启动（3 秒/帧） =='
 
 # ---- 阶段 A：真实环境镜像（11.6：真实规模 + 脏数据，禁干净实验室充当） ----
 Log '== 阶段 A：真实脏数据环境生成 =='
-$corpus = "$EvidenceDir\corpus"
+# 语料放证据目录之外（C 盘镜像位），不随证据包上传（4.5 万文件会撑爆 artifact）
+$corpus = 'C:\taosearch-rp-corpus'
+if (Test-Path $corpus) { Remove-Item $corpus -Recurse -Force -ErrorAction SilentlyContinue }
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 function W([string]$p, [string]$c) { [System.IO.File]::WriteAllText($p, $c) }
 $cnContent = '这是一份测试文档，包含中文内容与数字 12345，用于全文检索验证。TaoSearch 本地全文引擎应能命中本段文字。'
@@ -408,11 +410,11 @@ if ($win) {
     Screenshot 'RP-P2-multibatch'
     # Alt+Q 真实按键唤起快速窗
     try {
-        [RPNative]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
-        [RPNative]::keybd_event(0x51, 0, 0, [UIntPtr]::Zero)
+        [RP.Native]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+        [RP.Native]::keybd_event(0x51, 0, 0, [UIntPtr]::Zero)
         Start-Sleep -Milliseconds 80
-        [RPNative]::keybd_event(0x51, 0, 2, [UIntPtr]::Zero)
-        [RPNative]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+        [RP.Native]::keybd_event(0x51, 0, 2, [UIntPtr]::Zero)
+        [RP.Native]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
         Start-Sleep -Seconds 2
         $quick = $root.FindFirst([System.Windows.Automation.TreeScope]::Children,
             (New-Object System.Windows.Automation.PropertyCondition(
@@ -426,8 +428,8 @@ if ($win) {
                 Start-Sleep -Seconds 4
                 Screenshot 'RP-P3b-quick-search'
             }
-            [RPNative]::keybd_event(0x1B, 0, 0, [UIntPtr]::Zero)
-            [RPNative]::keybd_event(0x1B, 0, 2, [UIntPtr]::Zero)
+            [RP.Native]::keybd_event(0x1B, 0, 0, [UIntPtr]::Zero)
+            [RP.Native]::keybd_event(0x1B, 0, 2, [UIntPtr]::Zero)
             Start-Sleep -Seconds 1
         } else { Flag 'RP-P3' 'Alt+Q 真实按键未唤起快速窗' $true }
     } catch { Flag 'RP-P3b' "Alt+Q 按键异常: $_" $false }
