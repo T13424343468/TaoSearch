@@ -183,7 +183,7 @@ async Task<int> RunAsync(string queriesPath, string reportPath, int timeoutSec)
         var spec = new QuerySpec { Text = q.Text, Scope = q.Scope, BatchSize = 200 };
         var qsw = Stopwatch.StartNew();
         ResultBatch batch;
-        try { batch = await CallAsync<ResultBatch>(1, spec, CancellationToken.None); }
+        try { batch = await CallSearchAsync(spec, CancellationToken.None); }
         catch (Exception ex)
         {
             Check($"G3-q{qn}", $"{q.Text} → 管道异常 {ex.Message}", false);
@@ -282,14 +282,16 @@ async Task<int> PerfAsync(string publishDir, string root, int files, string repo
     Check("G9-00", $"大语料首扫就绪：{ready.FileCount}/{files} 文件 {sw.Elapsed.TotalSeconds:F1}s", ready.FileCount >= files);
 
     // 5. 文件名查询延迟抽样（10 探针，FR-01 毫秒级判据）
+    // BatchSize=20000：探针最大命中约 1 万（perf-09*），单批回完——量的是纯服务端延迟，
+    // 不混入多批流式往返；CallSearchAsync 读至 IsFinal，杜绝首轮「只读首批楔死管道」的用例缺陷。
     var lat = new List<double>();
     string[] probes = ["content-00", "content-09", "decoy-0", "perf-00", "perf-09", "readme", "perf-05", "content-05", "decoy-09", "perf-03"];
     foreach (var text in probes)
     {
-        var spec = new QuerySpec { Text = text, Scope = QueryScope.Filename, BatchSize = 200 };
+        var spec = new QuerySpec { Text = text, Scope = QueryScope.Filename, BatchSize = 20000 };
         var qsw = Stopwatch.StartNew();
         ResultBatch batch;
-        try { batch = await CallAsync<ResultBatch>(1, spec, CancellationToken.None); }
+        try { batch = await CallSearchAsync(spec, CancellationToken.None); }
         catch (Exception ex)
         {
             lines.Add($"[FAIL] 查询 {text} 管道异常: {ex.Message}");
@@ -326,6 +328,23 @@ static void GenerateLargeCorpus(string root, int files)
 }
 
 // ---- 管道调用（帧头 12B，与 App PipeClient 同构；单次调用 30s 超时防挂死盲等） ----
+// Search 专用（0.1.0.14 修复用例自身挂死）：多批响应必须读到 IsFinal——
+// 只读首批就返回会让服务端剩余批次写满管道缓冲区，泵卡死在 WriteAsync，
+// 后续所有请求 30s 超时（gate9 首轮实证：perf-00 万级命中 50 批，第 5 探针起全挂）。
+async Task<ResultBatch> CallSearchAsync(QuerySpec spec, CancellationToken ct)
+{
+    var merged = new List<SearchHit>();
+    long total = 0;
+    while (true)
+    {
+        var batch = await CallAsync<ResultBatch>(1, spec, ct);
+        merged.AddRange(batch.Hits);
+        total = batch.TotalEstimate;
+        if (batch.IsFinal) break;
+    }
+    return new ResultBatch { Hits = merged, TotalEstimate = total, IsFinal = true };
+}
+
 async Task<TResp> CallAsync<TResp>(ushort method, object? request, CancellationToken ct) where TResp : class
 {
     using var callCts = CancellationTokenSource.CreateLinkedTokenSource(ct);

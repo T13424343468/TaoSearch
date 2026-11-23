@@ -865,15 +865,26 @@ Log '== 热键冲突实弹 =='
 try {
     Get-Process TaoSearch.App -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
-    # 占位进程：独立 pwsh 注册 Alt+Q（Mod=Alt 0x1, vk='Q'）后驻留 180s
+    # 占位进程：独立 pwsh 注册 Alt+Q（与壳层同旗标 Mod=Alt|NOREPEAT 0x4001, vk='Q'）后驻留 180s；
+    # 注册结果回写文件（v6 诊断：首轮无弹窗，无法区分「占位失败」还是「壳层未弹」，此处取证）
+    $holderResult = Join-Path $env:TEMP 'hotkey-holder-result.txt'
+    Remove-Item $holderResult -ErrorAction SilentlyContinue
     $holderScript = Join-Path $env:TEMP 'hotkey-holder.ps1'
-    Set-Content -Path $holderScript -Encoding UTF8 -Value @'
+    Set-Content -Path $holderScript -Encoding UTF8 -Value @"
 Add-Type -Namespace Hold -Name Native -MemberDefinition '[DllImport("user32.dll")] public static extern bool RegisterHotKey(System.IntPtr hWnd, int id, uint mods, uint vk);'
-[Hold.Native]::RegisterHotKey([System.IntPtr]::Zero, 1, 0x1, [uint32][char]'Q') | Out-Null
+`$ok = [Hold.Native]::RegisterHotKey([System.IntPtr]::Zero, 1, 0x4001, [uint32][char]'Q')
+`$err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+Set-Content -Path '$holderResult' -Value "registered=`$ok win32err=`$err"
 Start-Sleep -Seconds 180
-'@
+"@
+    if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) {
+        Check 'G2-29' '占位前置：pwsh 不可用，占位无法建立' $false $true
+        Screenshot 'G2-29-hotkey-conflict'
+    } else {
     $holder = Start-Process pwsh -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$holderScript -PassThru -WindowStyle Hidden
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds 5
+    $holderState = if (Test-Path $holderResult) { (Get-Content $holderResult -Raw).Trim() } else { 'no-result-file' }
+    Log "G2-29 占位进程注册结果: $holderState"
     # 全新启动（settings 已有 OnboardingCompleted，直接进主窗；注册失败应弹「快捷键未生效」）
     $appC = Start-Process -FilePath "$PublishDir\TaoSearch.App.exe" -WorkingDirectory $PublishDir -PassThru
     $conflict = $null
@@ -896,6 +907,7 @@ Start-Sleep -Seconds 180
     Screenshot 'G2-29-hotkey-conflict'
     try { if ($holder -and -not $holder.HasExited) { $holder.Kill() } } catch { }
     try { $appC.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 2; if (-not $appC.HasExited) { $appC.Kill() } } catch { }
+    }
 } catch { Check 'G2-29' "热键冲突实弹异常: $_" $false $true }
 
 # ---- DPI 缩放模拟（G2-31，模拟令：改系统 DPI 后重启壳层，验窗口渲染；环境相关记 INFO）----
