@@ -142,24 +142,24 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
     }
 
     /// <summary>
-    /// READ_USN_JOURNAL_DATA_V0 精确 40 字节布局：JournalID 8 + StartUsn 8 + ReasonMask 4 + ReturnOnlyOnClose 4 + Timeout 8 + BytesToWaitFor 8。
-    /// 原写 32 字节漏 ReturnOnlyOnClose，输入尺寸校验不过 → ReadUsn 恒败 1784（云端探针实测）。
+    /// READ_USN_JOURNAL_DATA 精确 40 字节布局（ntifs.h 权威字段序）：StartUsn 8 + ReasonMask 4 + ReturnOnlyOnClose 4 + Timeout 8 + BytesToWaitFor 8 + UsnJournalID 8。
+    /// 原写 32 字节漏 ReturnOnlyOnClose（1784）；JournalID 在前的顺序实测报 87（JournalID 落 0）。
     /// </summary>
     private sealed class ReadJournalArgs(ulong journalId, long startUsn)
     {
-        public ulong UsnJournalId = journalId;
         public long StartUsn = startUsn;
         public uint ReasonMask = 0xFFFFFFFF;
         public uint ReturnOnlyOnClose = 0;
         public ulong Timeout = 0;
         public ulong BytesToWaitFor = 0;   // 0 = 立即返回现有记录，不等待
+        public ulong UsnJournalId = journalId;
 
         public byte[] ToBytes()
         {
-            var b = new byte[8 + 8 + 4 + 4 + 8 + 8];
+            var b = new byte[8 + 4 + 4 + 8 + 8 + 8];
             using var ms = new MemoryStream(b);
             using var w = new BinaryWriter(ms);
-            w.Write(UsnJournalId); w.Write(StartUsn); w.Write(ReasonMask); w.Write(ReturnOnlyOnClose); w.Write(Timeout); w.Write(BytesToWaitFor);
+            w.Write(StartUsn); w.Write(ReasonMask); w.Write(ReturnOnlyOnClose); w.Write(Timeout); w.Write(BytesToWaitFor); w.Write(UsnJournalId);
             return b;
         }
     }

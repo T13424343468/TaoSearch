@@ -211,15 +211,15 @@ public sealed class RealVolumeTests
 
             if (qok)
             {
-                // READ_USN_JOURNAL_DATA_V0 40 字节：JournalID@0、StartUsn@8、ReasonMask@16、ReturnOnlyOnClose@20、Timeout@24、BytesToWaitFor@32；
+                // READ_USN_JOURNAL_DATA 40 字节（ntifs.h 权威字段序）：StartUsn@0、ReasonMask@8、ReturnOnlyOnClose@12、Timeout@16、BytesToWaitFor@24、UsnJournalID@32；
                 // StartUsn 取 QUERY 应答的 NextUsn@16（USN_JOURNAL_DATA = JournalID@0/FirstUsn@8/NextUsn@16）
                 var rin = new byte[40];
-                BitConverter.GetBytes(BitConverter.ToUInt64(qbuf, 0)).CopyTo(rin, 0);    // JournalID
-                BitConverter.GetBytes(BitConverter.ToInt64(qbuf, 16)).CopyTo(rin, 8);    // StartUsn = NextUsn
-                BitConverter.GetBytes(0xFFFFFFFFu).CopyTo(rin, 16);                      // ReasonMask
-                BitConverter.GetBytes(0u).CopyTo(rin, 20);                               // ReturnOnlyOnClose
-                BitConverter.GetBytes(0UL).CopyTo(rin, 24);                              // Timeout
-                BitConverter.GetBytes(0UL).CopyTo(rin, 32);                              // BytesToWaitFor
+                BitConverter.GetBytes(BitConverter.ToInt64(qbuf, 16)).CopyTo(rin, 0);    // StartUsn = NextUsn
+                BitConverter.GetBytes(0xFFFFFFFFu).CopyTo(rin, 8);                       // ReasonMask
+                BitConverter.GetBytes(0u).CopyTo(rin, 12);                               // ReturnOnlyOnClose
+                BitConverter.GetBytes(0UL).CopyTo(rin, 16);                              // Timeout
+                BitConverter.GetBytes(0UL).CopyTo(rin, 24);                              // BytesToWaitFor
+                BitConverter.GetBytes(BitConverter.ToUInt64(qbuf, 0)).CopyTo(rin, 32);   // UsnJournalID
                 var rbuf = new byte[64 * 1024];
                 bool rok = DeviceIoControlPinned(h, FsctlReadUsnJournal, rin, rbuf, out uint rret);
                 _output.WriteLine($"[probe] {label} READ_USN_JOURNAL v0-40B ok={rok} err={Marshal.GetLastWin32Error()} ret={rret}");
