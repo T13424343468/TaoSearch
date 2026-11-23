@@ -65,13 +65,17 @@ internal static class MftInterop
     internal const uint OpenExisting = 3;
     internal const uint BackupSemantics = 0x02000000;
 
-    /// <summary>MFT 枚举入参（native MFT_ENUM_DATA_V0：起始引用号 8 字节 + 两个 USHORT 版本号；云端 Windows 实测校准）。</summary>
+    /// <summary>
+    /// MFT 枚举入参（native MFT_ENUM_DATA_V0，24 字节：StartFileReferenceNumber/LowUsn/HighUsn 各 8 字节）。
+    /// 原误写 12 字节混合布局（8 字节引用号 + 两个 USHORT「版本号」）——该布局不存在，
+    /// 输入尺寸校验不过 FSCTL 恒返回错误 1（2026-11-23 云端 runner 真卷探针实测：12 字节在全部组合、两种句柄上均 err=1）。
+    /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     internal struct MftEnumInput
     {
         public ulong StartFileReference;
-        public ushort LowVersion;   // 0 = MFT_ENUM_DATA_V0（原误写 ulong 且值 2：错位成 LowVersion=2/HighVersion=0 非法组合，FSCTL 返回错误 1）
-        public ushort HighVersion;  // 0
+        public ulong LowUsn;      // 0 = 枚举下界
+        public ulong HighUsn;     // ulong.MaxValue = 全量枚举上界
     }
 
     /// <summary>USN 记录头（V2，实际记录为变长，FileName 偏移按结构体计算）。</summary>

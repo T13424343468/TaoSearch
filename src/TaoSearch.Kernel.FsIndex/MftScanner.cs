@@ -78,7 +78,7 @@ public sealed class MftScanner
             return MftScanOutcome.Fail(openError != 0 ? openError : Win32ErrorAccessDenied);
 
         byte[] buffer = new byte[InitialBufferBytes];
-        var input = new MftInterop.MftEnumInput { StartFileReference = 0, LowVersion = 2, HighVersion = 2 };
+        var input = new MftInterop.MftEnumInput { StartFileReference = 0, LowUsn = 0, HighUsn = ulong.MaxValue };
         int inputSize = Marshal.SizeOf<MftInterop.MftEnumInput>();
         var inputBytes = new byte[inputSize];
         long recordCount = 0;

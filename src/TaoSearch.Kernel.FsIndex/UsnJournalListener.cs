@@ -108,30 +108,37 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
     private (ulong UsnJournalId, long NextUsn)? QueryJournal(SafeFileHandle volume)
     {
         var outBuf = new byte[64];
-        var ok = MftInterop.DeviceIoControl(volume, MftInterop.FsctlQueryUsnJournal,
-            0, 0, PinBytes(outBuf), (uint)outBuf.Length, out _, 0);
+        bool ok;
+        nint outPtr;
+        var hOut = GCHandle.Alloc(outBuf, GCHandleType.Pinned);
+        try
+        {
+            outPtr = hOut.AddrOfPinnedObject();
+            ok = MftInterop.DeviceIoControl(volume, MftInterop.FsctlQueryUsnJournal,
+                0, 0, outPtr, (uint)outBuf.Length, out _, 0);
+        }
+        finally { hOut.Free(); }
         if (!ok) return null;
-        // USN_JOURNAL_DATA_V0 布局：NextUsn@0、FirstUsn（即日志 ID）@8、MaxSizeUsn@16
-        long nextUsn = BitConverter.ToInt64(outBuf, 0);
-        ulong journalId = BitConverter.ToUInt64(outBuf, 8);
+        // USN_JOURNAL_DATA_V0 布局：UsnJournalID@0、NextUsn@8（2026-11-23 云端探针实测：
+        // @0=1.34e17 为典型日志 ID、@8=3.5e9 为典型 NextUsn；原注释误写 NextUsn@0 致两者取反，READ 恒败零事件）
+        ulong journalId = BitConverter.ToUInt64(outBuf, 0);
+        long nextUsn = BitConverter.ToInt64(outBuf, 8);
         return (journalId, nextUsn);
     }
 
     private int ReadUsn(SafeFileHandle volume, ReadJournalArgs args, byte[] buffer)
     {
         var inBytes = args.ToBytes();
-        var ok = MftInterop.DeviceIoControl(volume, MftInterop.FsctlReadUsnJournal,
-            PinBytes(inBytes), (uint)inBytes.Length,
-            PinBytes(buffer), (uint)buffer.Length, out var returned, 0);
-        return ok ? (int)returned : 0;
-    }
-
-    /// <summary>临时固定托管数组取指针（调用期间有效，DeviceIoControl 同步返回前不失效）。</summary>
-    private static nint PinBytes(byte[] array)
-    {
-        var h = GCHandle.Alloc(array, GCHandleType.Pinned);
-        try { return h.AddrOfPinnedObject(); }
-        finally { h.Free(); }
+        var hIn = GCHandle.Alloc(inBytes, GCHandleType.Pinned);
+        var hOut = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+        try
+        {
+            var ok = MftInterop.DeviceIoControl(volume, MftInterop.FsctlReadUsnJournal,
+                hIn.AddrOfPinnedObject(), (uint)inBytes.Length,
+                hOut.AddrOfPinnedObject(), (uint)buffer.Length, out var returned, 0);
+            return ok ? (int)returned : 0;
+        }
+        finally { hIn.Free(); hOut.Free(); }
     }
 
     /// <summary>

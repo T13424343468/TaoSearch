@@ -192,31 +192,34 @@ public sealed class RealVolumeTests
             _output.WriteLine($"[probe] open {label} {path} ok");
 
             var qbuf = new byte[64];
-            bool qok = DeviceIoControl(h, FsctlQueryUsnJournal, 0, 0, Pin(qbuf), (uint)qbuf.Length, out uint qret, 0);
+            bool qok = DeviceIoControlPinned(h, FsctlQueryUsnJournal, null, qbuf, out uint qret);
             _output.WriteLine($"[probe] {label} QUERY_USN_JOURNAL ok={qok} err={Marshal.GetLastWin32Error()} ret={qret}"
-                + (qok ? $" nextUsn={BitConverter.ToInt64(qbuf, 0)} journalId={BitConverter.ToUInt64(qbuf, 8)}" : ""));
+                + (qok ? $" journalId={BitConverter.ToUInt64(qbuf, 0)} nextUsn={BitConverter.ToInt64(qbuf, 8)}" : ""));
 
-            foreach (var (lo, hi) in new[] { (0, 0), (2, 2), (2, 3), (0, 2) })
+            // MFT_ENUM_DATA_V0 正确 24 字节布局（StartRef/LowUsn/HighUsn 各 8 字节）：
+            // 全量口径 (0, 0, MAX) 与零口径 (0,0,0) 双组合出证；12 字节旧布局已由上一轮探针实锤恒 err=1
+            foreach (var (lo, hi) in new[] { (0UL, ulong.MaxValue), (0UL, 0UL) })
             {
-                var input = new byte[12];
-                BitConverter.GetBytes(0L).CopyTo(input, 0);
-                BitConverter.GetBytes((ushort)lo).CopyTo(input, 8);
-                BitConverter.GetBytes((ushort)hi).CopyTo(input, 10);
+                var input = new byte[24];
+                BitConverter.GetBytes(0L).CopyTo(input, 0);          // StartFileReferenceNumber
+                BitConverter.GetBytes(lo).CopyTo(input, 8);          // LowUsn
+                BitConverter.GetBytes(hi).CopyTo(input, 16);         // HighUsn
                 var obuf = new byte[1 << 20];
-                bool eok = DeviceIoControl(h, FsctlEnumUsnData, Pin(input), 12, Pin(obuf), (uint)obuf.Length, out uint eret, 0);
-                _output.WriteLine($"[probe] {label} ENUM_USN_DATA v=({lo},{hi}) ok={eok} err={Marshal.GetLastWin32Error()} ret={eret}");
+                bool eok = DeviceIoControlPinned(h, FsctlEnumUsnData, input, obuf, out uint eret);
+                _output.WriteLine($"[probe] {label} ENUM_USN_DATA v0-24B usn=({lo},{hi}) ok={eok} err={Marshal.GetLastWin32Error()} ret={eret}");
             }
 
             if (qok)
             {
+                // READ_USN_JOURNAL_DATA_V0 32 字节：JournalID=@0、StartUsn=@8（USN_JOURNAL_DATA_V0 应答的真实偏移）
                 var rin = new byte[32];
-                BitConverter.GetBytes(BitConverter.ToUInt64(qbuf, 8)).CopyTo(rin, 0);   // JournalID = FirstUsn
-                BitConverter.GetBytes(BitConverter.ToInt64(qbuf, 0)).CopyTo(rin, 8);   // StartUsn = NextUsn
+                BitConverter.GetBytes(BitConverter.ToUInt64(qbuf, 0)).CopyTo(rin, 0);   // JournalID
+                BitConverter.GetBytes(BitConverter.ToInt64(qbuf, 8)).CopyTo(rin, 8);    // StartUsn = NextUsn
                 BitConverter.GetBytes(0xFFFFFFFFu).CopyTo(rin, 16);                     // ReasonMask
                 BitConverter.GetBytes(0u).CopyTo(rin, 20);                              // BytesToWaitFor
                 BitConverter.GetBytes(0UL).CopyTo(rin, 24);                             // Timeout
                 var rbuf = new byte[64 * 1024];
-                bool rok = DeviceIoControl(h, FsctlReadUsnJournal, Pin(rin), 32, Pin(rbuf), (uint)rbuf.Length, out uint rret, 0);
+                bool rok = DeviceIoControlPinned(h, FsctlReadUsnJournal, rin, rbuf, out uint rret);
                 _output.WriteLine($"[probe] {label} READ_USN_JOURNAL v0-32B ok={rok} err={Marshal.GetLastWin32Error()} ret={rret}");
             }
         }
@@ -250,10 +253,18 @@ public sealed class RealVolumeTests
         out int lpVolumeSerialNumber, out int lpMaximumComponentLength, out int lpFileSystemFlags,
         System.Text.StringBuilder lpFileSystemNameBuffer, int nFileSystemNameSize);
 
-    private static nint Pin(byte[] array)
+    /// <summary>固定缓冲调用 DeviceIoControl：GCHandle 覆盖调用全程（原 Pin 先释放后使用，小数组可被 GC 移动致 1784）。</summary>
+    private static bool DeviceIoControlPinned(
+        Microsoft.Win32.SafeHandles.SafeFileHandle h, uint code, byte[]? inBuf, byte[] outBuf, out uint returned)
     {
-        var h = System.Runtime.InteropServices.GCHandle.Alloc(array, System.Runtime.InteropServices.GCHandleType.Pinned);
-        try { return h.AddrOfPinnedObject(); }
-        finally { h.Free(); }
+        var hIn = inBuf is null ? default : System.Runtime.InteropServices.GCHandle.Alloc(inBuf, System.Runtime.InteropServices.GCHandleType.Pinned);
+        var hOut = System.Runtime.InteropServices.GCHandle.Alloc(outBuf, System.Runtime.InteropServices.GCHandleType.Pinned);
+        try
+        {
+            return DeviceIoControl(h, code,
+                inBuf is null ? 0 : hIn.AddrOfPinnedObject(), (uint)(inBuf?.Length ?? 0),
+                hOut.AddrOfPinnedObject(), (uint)outBuf.Length, out returned, 0);
+        }
+        finally { if (hIn.IsAllocated) hIn.Free(); hOut.Free(); }
     }
 }
