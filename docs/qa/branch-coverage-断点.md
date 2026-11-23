@@ -15,7 +15,11 @@
 1. **真实 NTFS 依赖，Linux 沙箱测不到（已试：注入 delegate 仅覆盖引擎编排层，扫描器本体需真卷句柄）**：
    - MftScanner 0/64（DeviceIoControl FSCTL_ENUM_USN_DATA 全路径）——需云端 Windows 管理员卷跑。
    - UsnJournalListener 0/76（同因，监听循环/订阅全在真 USN 句柄上）。
-2. **内部 unsafe/哈希桶分支（NameIndex 89.3%、NameIndexSnapshot 75%、InvertedIndexSnapshot 75.7%）**：需构造哈希环/快照损坏字节流，属下一批用例（可做，未及）。
+2. **内部 unsafe/哈希桶分支（第二批已落，2026-11-23 09:xx 班，提交 904c6fe）**：新增 SnapshotHashBranchTests.cs 42 用例（Kernel 全量 185/185 绿，云端 CI run 45093090775 绿）。
+   - **Kernel 分支覆盖 81.25% → 85.79%**；NameIndex 88.6%→97.9%、InvertedIndex 78.6%→90%+、Tokenizer→100%。
+   - 已覆盖：BuildPath 断链/多段/缺失引用、Remove 防用、双释放、名字区扩容、空名记录、搜索大小写/数字首字节/CJK/尾部越界矩阵、快照装载期 GrowHash（300 条）、BufferedStream 直传落盘；
+   - 损坏字节流全路径（文件名+全文两套快照）：坏魔数、坏版本、坏头 CRC、active/termCount 负数、nameBytes/termBytes 超 int.MaxValue、头/词条区/记录区/文档区/ID 区截断、坏体 CRC（保留原 trailer 实测）、已删记录旗标、名字偏移非法、负名字长度、慢速流 1 字节分片读。
+   - 踩坑记录：①CRC 夹具改内容后必须保留原 trailer 才能实测坏体 CRC 分支（重算等于自证合法）；②BufferedStream 释放会关底层流，SaveSnapshot 只 Flush 不 Dispose 的口径决定了测试侧不能 using 包裹；③InvertedIndex 不是 IDisposable；④NameIndex.Count 属性不设防（防用断言只覆盖写路径）；⑤'.'/'-'/'#' 是词元字符，「纯符号」用例必须避开。
 3. **Service.Tests 第一批已落（2026-11-23 08:xx 班，提交 39625a2 + b7e6913）**：新增 ServiceFactoryTests.cs 13 用例（43/43 绿，云端 CI run 45087482016 绿）。
    - Service 分支覆盖 **41.0% → 56.9%**；ServiceHostFactory.CreateAsync 0% → 85.7%。
    - 已覆盖：恢复路径+journal 重放+轮转、损坏 fs.journal 降级、损坏全文快照降级重建、有效全文快照恢复后内容检索命中、RebuildIndex 双作用域先清后建+双检查点、坏 JSON 负回执、PipeSession 空流/超限帧收尾、PipeServer 监听循环端到端+取消收班、ContentIndexer 检查点静默窗口+无日志空操作。
