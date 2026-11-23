@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using TaoSearch.App.Core;
+using TaoSearch.App.Services;
 
 namespace TaoSearch.App;
 

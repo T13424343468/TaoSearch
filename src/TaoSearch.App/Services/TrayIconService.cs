@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using TaoSearch.App.Core;
 using TaoSearch.Kernel.Contracts;
 
 namespace TaoSearch.App.Services;

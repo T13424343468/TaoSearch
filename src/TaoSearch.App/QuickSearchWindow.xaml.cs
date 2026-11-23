@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using TaoSearch.App.Core;
+using TaoSearch.App.Services;
 using TaoSearch.Kernel.Contracts;
 
 namespace TaoSearch.App;
