@@ -57,9 +57,14 @@ public class BranchCompletionTests
     {
         ResetAttempted();
         var exe = Path.Combine(AppContext.BaseDirectory, "TaoSearch.Service.exe");
-        await File.WriteAllTextAsync(exe, "#!/bin/sh\nsleep 30\n");
-        if (!OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows())
         {
+            // Windows：占位服务用真实 PE（cmd 副本）——非 PE 文件 Process.Start 抛 Win32Exception 被吞，走不到等待环（windows-ci 真机实测）
+            File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), exe, overwrite: true);
+        }
+        else
+        {
+            await File.WriteAllTextAsync(exe, "#!/bin/sh\nsleep 30\n");
             var mode = File.GetUnixFileMode(exe) | UnixFileMode.UserExecute | UnixFileMode.UserRead;
             File.SetUnixFileMode(exe, mode);
         }
@@ -89,9 +94,14 @@ public class BranchCompletionTests
     {
         ResetAttempted();
         var exe = Path.Combine(AppContext.BaseDirectory, "TaoSearch.Service.exe");
-        await File.WriteAllTextAsync(exe, "#!/bin/sh\nsleep 30\n");
-        if (!OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows())
         {
+            // Windows：占位服务用真实 PE（cmd 副本）——非 PE 文件 Process.Start 抛 Win32Exception 被吞，走不到等待环（windows-ci 真机实测）
+            File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), exe, overwrite: true);
+        }
+        else
+        {
+            await File.WriteAllTextAsync(exe, "#!/bin/sh\nsleep 30\n");
             var mode = File.GetUnixFileMode(exe) | UnixFileMode.UserExecute | UnixFileMode.UserRead;
             File.SetUnixFileMode(exe, mode);
         }
