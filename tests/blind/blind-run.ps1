@@ -12,6 +12,26 @@ $ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, System.Drawing
 New-Item -ItemType Directory -Path $EvidenceDir -Force | Out-Null
 
+# 2026-11-24 首轮盲测假绿教训：UIA Invoke 在部分环境静默失效，补真实鼠标坐标点击兜底
+if (-not ('NativeMouse' -as [type])) {
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class NativeMouse {
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+    public static void Click(int x, int y) {
+        SetCursorPos(x, y);
+        System.Threading.Thread.Sleep(150);
+        mouse_event(0x02, 0, 0, 0, UIntPtr.Zero);
+        System.Threading.Thread.Sleep(80);
+        mouse_event(0x04, 0, 0, 0, UIntPtr.Zero);
+    }
+}
+"@
+}
+$script:blindFail = $false
+
 function Log([string]$m) { Write-Host "[blind] $m" }
 function Shot([string]$name) {
     try {
@@ -48,8 +68,14 @@ function Invoke-ButtonByName([System.Windows.Automation.AutomationElement]$w, [s
     try { ($btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke(); return $true }
     catch {
         try { ($btn.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)).DoDefaultAction(); return $true }
-        catch { Log "btn[$label]: 不可调用 $_"; return $false }
+        catch { Log "btn[$label]: 不可调用 $_" }
     }
+    # 降级：真实鼠标坐标点击（对齐 gate2 教训口径，Invoke 静默失效时兜底）
+    try {
+        $pt = $btn.GetClickablePoint()
+        [NativeMouse]::Click([int]$pt.X, [int]$pt.Y)
+        return $true
+    } catch { return $false }
 }
 function Get-OnboardingWindow {
     # 对齐 gate2 G2-11：按精确窗口名「TaoSearch 首次使用引导」找，重试 30s（B-03 v3：
@@ -112,8 +138,17 @@ $app = Start-Process -FilePath "$PublishDir\TaoSearch.App.exe" -WorkingDirectory
 Start-Sleep -Seconds 8
 Shot 'BL-xiaobai-01-first-launch' # B-01 复核口径：首启截图延后至渲染稳定（8s），若仍空白升级为缺陷
 # 小白不看说明：引导页逐页下一步（B-03 v3：引导窗按精确名独立定位）
-Complete-Onboarding 'BL-xiaobai-02'
+$obSeen = Get-OnboardingWindow
+if ($obSeen) { Complete-Onboarding 'BL-xiaobai-02' }
+else { Log "onboarding: 引导窗未出现（30s 内）"; $findings.Add("B-x01 首启 30s 内未找到引导窗「TaoSearch 首次使用引导」（UIA）"); $script:blindFail = $true }
 Start-Sleep -Seconds 8
+# 硬断言（2026-11-24 假绿教训）：引导必须已关闭，否则本轮盲测无效，CI 必须红
+$obGone = -not (Get-OnboardingWindow)
+if (-not $obGone) {
+    $findings.Add("B-x02 引导窗未关闭：盲测推进链路未走通（脚本或产品缺陷，见 BL-xiaobai-03 截图定谳）")
+    $script:blindFail = $true
+    Log "ASSERT FAIL: onboarding still open after Complete-Onboarding"
+}
 Shot 'BL-xiaobai-03-after-onboarding'
 # 小白随手搜一个常见词
 $w = Get-AppWindow 'TaoSearch'
@@ -223,3 +258,5 @@ $($findings -join "`n")
 "@ | Out-File (Join-Path $EvidenceDir 'findings.md') -Encoding utf8
 
 Log "blind run complete, evidence=$EvidenceDir"
+# 2026-11-24 假绿教训：盲测推进链路未走通必须红，禁止静默退出 0
+if ($script:blindFail) { Log "BLIND RUN FAILED (assertion(s) unmet)"; exit 1 }

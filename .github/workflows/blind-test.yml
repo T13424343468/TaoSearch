@@ -10,6 +10,7 @@ on:
 # v3.22 十一.3 零用例盲测令 + 十一.6 真实环境镜像令 + 六.9 日志归档令：
 # 不给代码不给用例，只拿安装包按六类场景当真实用户摸索；镜像环境实测，禁干净实验室充当；
 # 全程录屏（ffmpeg gdigrab）+ 逐档截图 + 安装/运行/崩溃日志全部归档随对账表交。
+# 2026-11-24 首轮假绿整改：盲测脚本硬断言+失败退出码；录屏经包装进程优雅收尾写出完整 mp4。
 jobs:
   blind:
     runs-on: windows-latest
@@ -37,20 +38,24 @@ jobs:
         shell: powershell
         run: ./tests/mirror/build-realmirror.ps1 -Root C:\taosearch-mirror -FileCount ${{ github.event.inputs.file_count }}
 
-      - name: 启动全程录屏（六.10 有图必看）
+      - name: 启动全程录屏（六.10 有图必看；包装进程负责优雅收尾写出 moov atom）
         shell: pwsh
         run: |
-          Start-Process -FilePath ffmpeg -ArgumentList '-y','-f','gdigrab','-framerate','2','-i','desktop','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p',"$PWD/blind-recording.mp4"
-          Start-Sleep -Seconds 3
+          if (Test-Path C:\blind-stop.flag) { Remove-Item C:\blind-stop.flag -Force }
+          Start-Process -FilePath pwsh -WindowStyle Hidden -ArgumentList '-NoProfile','-File',"tests/blind/record-wrapper.ps1","-OutPath","$PWD\blind-recording.mp4","-StopFlag","C:\blind-stop.flag"
+          Start-Sleep -Seconds 4
 
       - name: 零用例盲测（三路画像：小白/熟练/搞破坏）
         shell: powershell
         run: ./tests/blind/blind-run.ps1 -PublishDir "$PWD/publish" -EvidenceDir "$PWD/blind-evidence" -MirrorRoot 'C:\taosearch-mirror'
 
-      - name: 停止录屏
+      - name: 停止录屏（优雅收尾：写停止旗标，ffmpeg 收到 q 后正常写出 mp4 尾部）
         if: always()
         shell: pwsh
         run: |
+          New-Item -ItemType File -Path C:\blind-stop.flag -Force | Out-Null
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Get-Process ffmpeg -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
           Get-Process ffmpeg -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 2
 
