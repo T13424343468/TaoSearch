@@ -52,7 +52,7 @@ jobs:
             Get-ChildItem -Recurse src/TaoSearch.App/obj -Include output.json,XamlSaveStateFile.xml -ErrorAction SilentlyContinue | ForEach-Object { "=== $($_.FullName) ==="; Get-Content $_.FullName -Raw }
           }
 
-      - name: 单元测试（Windows 真环境跑 MFT/USN 互操作编译产物）
+      - name: 单元测试（Windows 真环境跑 MFT/USN 互操作编译产物；真卷用例在本步实跑出账）
         run: >
           dotnet test TaoSearch.Kernel.slnx -c Release --no-build --nologo
           --filter "Category!=Benchmark" --logger "trx;LogFileName=taosearch-tests.trx" --results-directory "D:\taosearch-test-results"
@@ -64,6 +64,47 @@ jobs:
           --filter "Category!=Benchmark"
           --collect:"XPlat Code Coverage;Format=cobertura"
           --results-directory "coverage-results"
+
+      - name: Program 进程级实测（控制台模式：首实例存活 + 单实例互斥体挡第二实例）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Get-ChildItem "src/TaoSearch.Service/bin/Release/net10.0/TaoSearch.Service.exe" -ErrorAction Stop | Select-Object -First 1
+          New-Item -ItemType Directory -Force -Path "D:\taosearch-test-results" | Out-Null
+          $vol = "$env:TEMP\taosearch-procvol"
+          New-Item -ItemType Directory -Force -Path $vol | Out-Null
+          Set-Content -Path "$vol\sample.txt" -Value "hello"
+
+          # G-P1：首实例（控制台模式）启动后存活
+          $out1 = "D:\taosearch-test-results\svc-proc1.out.log"
+          $err1 = "D:\taosearch-test-results\svc-proc1.err.log"
+          $p1 = Start-Process -FilePath $exe.FullName -ArgumentList '--console', $vol -PassThru -RedirectStandardOutput $out1 -RedirectStandardError $err1
+          Start-Sleep -Seconds 8
+          $p1.Refresh()
+          if ($p1.HasExited) {
+            $o = Get-Content $out1 -Raw -ErrorAction SilentlyContinue; $e = Get-Content $err1 -Raw -ErrorAction SilentlyContinue
+            throw "G-P1 首实例启动后 8 秒内退出（ExitCode=$($p1.ExitCode)）out=$o err=$e"
+          }
+          Write-Host "[PASS] G-P1 首实例存活（控制台模式，PID=$($p1.Id)）"
+
+          # G-P2：第二实例被 Global 互斥体挡住，打印占用文案后自行退出
+          $out2 = "D:\taosearch-test-results\svc-proc2.out.log"
+          $p2 = Start-Process -FilePath $exe.FullName -ArgumentList '--console', $vol -PassThru -RedirectStandardOutput $out2 -RedirectStandardError "D:\taosearch-test-results\svc-proc2.err.log"
+          $deadline = (Get-Date).AddSeconds(15)
+          while (-not $p2.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300; $p2.Refresh() }
+          $p2.Refresh()
+          if (-not $p2.HasExited) { Stop-Process -Id $p2.Id -Force; throw "G-P2 第二实例 15 秒内未退出（互斥体未挡）" }
+          $log2 = Get-Content $out2 -Raw -ErrorAction SilentlyContinue
+          if ($log2 -notmatch '单实例互斥体被占用') { throw "G-P2 第二实例退出原因不符：$log2" }
+          Write-Host "[PASS] G-P2 第二实例被互斥体挡住自行退出"
+
+          # G-P3：第二实例启动不影响首实例
+          $p1.Refresh()
+          if ($p1.HasExited) { throw "G-P3 第二实例启动后首实例意外退出" }
+          Write-Host "[PASS] G-P3 首实例仍存活"
+
+          Stop-Process -Id $p1.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "[PASS] G-P4 进程级实测收尾完成（日志随测试证据归档）"
 
       - name: 上传测试证据
         if: always()
