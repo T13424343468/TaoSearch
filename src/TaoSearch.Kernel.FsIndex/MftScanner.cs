@@ -30,6 +30,7 @@ public sealed class MftScanner
     public const int Win32ErrorAccessDenied = 5;
     public const int Win32ErrorMoreData = 234;
     public const int Win32ErrorInvalidFunction = 1;
+    public const int Win32ErrorEndOfEnumeration = 38;   // ERROR_HANDLE_EOF：FSCTL_ENUM_USN_DATA 枚举到尾
 
     private const int InitialBufferBytes = 1 << 20;   // 1MB 起步
     private const int MaxBufferBytes = 16 << 20;      // 16MB 封顶
@@ -107,6 +108,8 @@ public sealed class MftScanner
                     buffer = new byte[Math.Min(buffer.Length * 4, MaxBufferBytes)];
                     continue;   // 同一起点重试
                 }
+                // ERROR_HANDLE_EOF(38) = 枚举正常到尾（云端实测：扫描约 2 秒耗尽全部记录后返回 38）
+                if (err == Win32ErrorEndOfEnumeration) break;
                 return MftScanOutcome.Fail(err);
             }
 
