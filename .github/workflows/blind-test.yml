@@ -1,0 +1,66 @@
+name: blind-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_count:
+        description: '镜像文件数（几十万级口径）'
+        default: '300000'
+
+# v3.22 十一.3 零用例盲测令 + 十一.6 真实环境镜像令 + 六.9 日志归档令：
+# 不给代码不给用例，只拿安装包按六类场景当真实用户摸索；镜像环境实测，禁干净实验室充当；
+# 全程录屏（ffmpeg gdigrab）+ 逐档截图 + 安装/运行/崩溃日志全部归档随对账表交。
+jobs:
+  blind:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 安装 ffmpeg（全程录屏用）
+        shell: pwsh
+        run: choco install ffmpeg -y --no-progress
+
+      - name: 发布服务与壳层
+        shell: pwsh
+        run: |
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -f net10.0-windows -r win-x64 --self-contained false -o publish --nologo
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+
+      - name: 造真实环境镜像（11.6：几十万级真实文件+脏数据）
+        shell: powershell
+        run: ./tests/mirror/build-realmirror.ps1 -Root C:\taosearch-mirror -FileCount ${{ github.event.inputs.file_count }}
+
+      - name: 启动全程录屏（六.10 有图必看）
+        shell: pwsh
+        run: |
+          Start-Process -FilePath ffmpeg -ArgumentList '-y','-f','gdigrab','-framerate','2','-i','desktop','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p',"$PWD/blind-recording.mp4"
+          Start-Sleep -Seconds 3
+
+      - name: 零用例盲测（三路画像：小白/熟练/搞破坏）
+        shell: powershell
+        run: ./tests/blind/blind-run.ps1 -PublishDir "$PWD/publish" -EvidenceDir "$PWD/blind-evidence" -MirrorRoot 'C:\taosearch-mirror'
+
+      - name: 停止录屏
+        if: always()
+        shell: pwsh
+        run: |
+          Get-Process ffmpeg -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+
+      - name: 上传盲测证据（截图+录屏+日志+问题清单）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blind-evidence
+          path: |
+            blind-evidence/**
+            blind-recording.mp4
+          if-no-files-found: warn
+          retention-days: 14

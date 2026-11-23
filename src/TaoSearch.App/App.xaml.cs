@@ -23,6 +23,9 @@ public partial class App : Application
     {
         Instance = this;
 
+        // 原生崩溃轻量落盘（v3.22 五章「崩溃日志随包落盘令」）：XAML 原生崩溃此前只走 WER 事件日志
+        NativeCrashLog.Install();
+
         // 全局异常取证（0.1.0.9）：XAML 原生崩溃走 WER 事件日志，托管异常走 crash.log
         UnhandledException += (s, e) =>
         {
@@ -38,7 +41,8 @@ public partial class App : Application
         };
     }
 
-    /// <summary>全局异常落盘（0.1.0.9）：未处理异常写 crash.log，云测与真机排障取证用。</summary>
+    /// <summary>全局异常落盘（0.1.0.9 建；v3.22 五章「崩溃日志随包落盘令」补版本号）：未处理异常写 crash.log
+    /// （异常类型/堆栈/发生时间/版本号），随包内建无需配置，不自动上报不收集个人信息。</summary>
     private static void LogCrash(string source, Exception? ex)
     {
         try
@@ -46,7 +50,8 @@ public partial class App : Application
             var dir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TaoSearch");
             Directory.CreateDirectory(dir);
-            var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{source}] {ex?.GetType().FullName}: {ex?.Message}\n{ex?.StackTrace}\n---\n";
+            var version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "unknown";
+            var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [v{version}] [{source}] {ex?.GetType().FullName}: {ex?.Message}\n{ex?.StackTrace}\n---\n";
             File.AppendAllText(Path.Combine(dir, "crash.log"), line);
         }
         catch { /* 取证失败不二次抛出 */ }

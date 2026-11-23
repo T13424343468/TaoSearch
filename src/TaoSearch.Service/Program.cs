@@ -24,6 +24,8 @@ public static class Program
 
     public static async Task Main(string[] args)
     {
+        CrashLog.Install(); // 崩溃日志随包落盘（v3.22 五章令）：托管异常写 service-crash.log，最早处安装
+
 #if WINDOWS
         // Windows 服务模式：SCM 拉起时 UserInteractive=false，或显式 --service；
         // 控制台模式：Start-Process 直拉（UserInteractive=true），--console 可强制。
