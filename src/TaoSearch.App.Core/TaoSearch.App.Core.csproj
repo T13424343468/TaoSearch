@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>TaoSearch.App.Core</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="TaoSearch.App.Core.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TaoSearch.Kernel.Contracts\TaoSearch.Kernel.Contracts.csproj" />
+  </ItemGroup>
+</Project>

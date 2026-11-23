@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.IO.Pipes;
 
-namespace TaoSearch.App.Services;
+namespace TaoSearch.App.Core;
 
 /// <summary>
 /// 索引服务守护（真机红灯修复）：安装器只落文件不注册自启，云端测试均手动拉起服务，

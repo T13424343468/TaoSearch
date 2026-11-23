@@ -1,14 +1,14 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using TaoSearch.App.Services;
+using TaoSearch.App.Core;
 using TaoSearch.Kernel.Contracts;
 
-namespace TaoSearch.App.ViewModels;
+namespace TaoSearch.App.Core;
 
 /// <summary>设置页 ViewModel：索引状态、重建、暂停恢复、开机自启、存储位置。</summary>
 public sealed class SettingsViewModel : INotifyPropertyChanged
 {
-    private readonly SearchGateway _gateway;
+    private readonly ISearchGateway _gateway;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -51,7 +51,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         set { _indexLocation = value; PropertyChanged?.Invoke(this, new(nameof(IndexLocation))); }
     }
 
-    public SettingsViewModel(SearchGateway gateway) => _gateway = gateway;
+    public SettingsViewModel(ISearchGateway gateway) => _gateway = gateway;
 
     public async Task RefreshAsync(CancellationToken ct = default)
     {

@@ -1,13 +1,13 @@
 using System.Text.Json;
 using TaoSearch.Kernel.Contracts;
-using TaoSearch.App.Ipc;
+using TaoSearch.App.Core;
 
-namespace TaoSearch.App.Services;
+namespace TaoSearch.App.Core;
 
 /// <summary>
 /// 搜索服务门面：壳层 ViewModel 的唯一数据源，包装管道客户端并做错误转译。
 /// </summary>
-public sealed class SearchGateway : IDisposable
+public sealed class SearchGateway : ISearchGateway
 {
     private readonly PipeClient _pipe = new();
 

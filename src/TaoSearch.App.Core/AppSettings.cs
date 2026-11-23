@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace TaoSearch.App.Services;
+namespace TaoSearch.App.Core;
 
 /// <summary>壳层本地设置：JSON 持久化于 %LOCALAPPDATA%\TaoSearch\settings.json。</summary>
 public sealed class AppSettings
@@ -24,23 +24,29 @@ public sealed class AppSettings
     private static string FilePath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TaoSearch", "settings.json");
 
-    public static AppSettings Load()
+    public static AppSettings Load() => Load(FilePath);
+
+    /// <summary>路径可注入的加载（测试接缝）：文件缺失/损坏/null 载荷一律回退默认值。</summary>
+    internal static AppSettings Load(string path)
     {
         try
         {
-            if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
+            if (File.Exists(path))
+                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path)) ?? new AppSettings();
         }
         catch { /* 损坏设置回退默认值 */ }
         return new AppSettings();
     }
 
-    public void Save()
+    public void Save() => Save(FilePath);
+
+    /// <summary>路径可注入的保存（测试接缝）：磁盘异常静默不阻断 UI。</summary>
+    internal void Save(string path)
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch { /* 磁盘异常不阻断 UI，真机验收补提示 */ }
     }

@@ -2,11 +2,13 @@ using TaoSearch.Kernel.Contracts;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 
-namespace TaoSearch.App.Ipc;
+namespace TaoSearch.App.Core;
 
 /// <summary>AOT 源生成序列化上下文（壳层侧，零第三方依赖）。</summary>
+[ExcludeFromCodeCoverage]
 [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(QuerySpec))]
 [JsonSerializable(typeof(ResultBatch))]
@@ -53,18 +55,31 @@ public sealed class PipeClient : IDisposable
         await _gate.WaitAsync(ct);
         try
         {
-            var pipe = await EnsureConnectedAsync(ct);
-            await pipe.WriteAsync(frame, ct);
-            await pipe.FlushAsync(ct);
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    var pipe = await EnsureConnectedAsync(ct);
+                    await pipe.WriteAsync(frame, ct);
+                    await pipe.FlushAsync(ct);
 
-            var header = new byte[12];
-            await ReadExactlyAsync(pipe, header, ct);
-            int respLen = BitConverter.ToInt32(header, 0); // 契约 §3.4：响应帧头即载荷长度
-            var respPayload = new byte[respLen];
-            await ReadExactlyAsync(pipe, respPayload, ct);
+                    var header = new byte[12];
+                    await ReadExactlyAsync(pipe, header, ct);
+                    int respLen = BitConverter.ToInt32(header, 0); // 契约 §3.4：响应帧头即载荷长度
+                    if (respLen <= 0) throw new InvalidDataException($"empty response for {method}");
+                    var respPayload = new byte[respLen];
+                    await ReadExactlyAsync(pipe, respPayload, ct);
 
-            return JsonSerializer.Deserialize<TResp>(respPayload, AppJsonContext.Default.Options)
-                ?? throw new InvalidDataException($"empty response for {method}");
+                    return JsonSerializer.Deserialize<TResp>(respPayload, AppJsonContext.Default.Options)
+                        ?? throw new InvalidDataException($"empty response for {method}");
+                }
+                catch (IOException) when (attempt == 0)
+                {
+                    // 连接已被对端关闭（服务重启/单应答即关）：弃旧换新重试一次
+                    _pipe?.Dispose();
+                    _pipe = null;
+                }
+            }
         }
         finally { _gate.Release(); }
     }

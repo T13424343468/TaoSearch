@@ -1,16 +1,16 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using TaoSearch.Kernel.Contracts;
-using TaoSearch.App.Services;
+using TaoSearch.App.Core;
 
-namespace TaoSearch.App.ViewModels;
+namespace TaoSearch.App.Core;
 
 /// <summary>
 /// 主搜索窗 ViewModel：输入即搜（300ms 防抖）、文件名/内容双路、预览高亮。
 /// </summary>
 public sealed class MainViewModel : INotifyPropertyChanged
 {
-    private readonly SearchGateway _gateway;
+    private readonly ISearchGateway _gateway;
     private CancellationTokenSource? _debounceCts;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -63,7 +63,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set { _statusText = value; PropertyChanged?.Invoke(this, new(nameof(StatusText))); }
     }
 
-    public MainViewModel(SearchGateway gateway) => _gateway = gateway;
+    public MainViewModel(ISearchGateway gateway) => _gateway = gateway;
 
     private async Task DebouncedSearchAsync()
     {

@@ -1,13 +1,15 @@
 using System.Diagnostics;
+using System.Runtime.Versioning;
 using System.Text.Json;
 
-namespace TaoSearch.App.Services;
+namespace TaoSearch.App.Core;
 
 /// <summary>
 /// 单实例与跳转列表参数转发：跳转列表点击会拉起新进程，
 /// 已有实例运行时把启动参数写入临时文件并唤醒首实例，自身退出。
 /// </summary>
-internal static class SingleInstanceLaunch
+[SupportedOSPlatform("windows")]
+public static class SingleInstanceLaunch
 {
     private const string MutexName = @"Local\Tao.TaoSearch.SingleInstance";
     private const string EventName = @"Local\Tao.TaoSearch.Launch";
@@ -80,7 +82,7 @@ internal static class SingleInstanceLaunch
 }
 
 /// <summary>启动参数解析：--quick / --open-index / --search &lt;关键词&gt;。</summary>
-internal static class LaunchArgs
+public static class LaunchArgs
 {
     public static bool HasQuick(string[] args) => args.Contains("--quick");
     public static bool HasOpenIndex(string[] args) => args.Contains("--open-index");

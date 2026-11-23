@@ -39,6 +39,17 @@
    - **踩坑记录**：①BatchSize=0 经 Math.Max(1,0)=1，每批只走 1 条，断言分批次数时按此口径；②未知扩展名静默跳过、不进失败清单，淘汰环形清单的测试须用「不存在文件」驱动；③C# List 取末元素用 `[^1]` 不是 `[-1]`。
    - Service 侧剩余缺口：Program 进程级归云端（同第 3 项）、PipeSession 87 行超限帧断开需管道夹具（留下一班）、ServiceHost 两处零星、PathFilter.Exclude 解析器未接经公共 API 不可达（归插桩伪影类停追）。
 
+6. **App 壳层可测化改造已落（2026-11-23 班，终裁①执行完毕）**：
+   - 新程序集 `src/TaoSearch.App.Core`（net10.0，零 WinUI 依赖）：`git mv` 迁移 9 个无界面依赖文件（AppSettings/FileLauncher/SearchGateway/ServiceSupervisor/SingleInstanceLaunch/PipeClient/HitViewModel/MainViewModel/SettingsViewModel），命名空间统一 `TaoSearch.App.Core`；新增 `ISearchGateway` 接口作 ViewModel 接缝；AppSettings 增路径可注入 internal 重载 + `InternalsVisibleTo`；App 工程 9 处 using 同步更新，App 内 GlobalHotkeyService/JumpListService/TrayIconService/WindowPlacement 留原命名空间。
+   - 新测试工程 `tests/TaoSearch.App.Core.Tests`：**87/87 绿**（LaunchArgs/AppSettings/MainViewModel/SettingsViewModel/Pipe 回环/Gateway/RemainingBranch/BranchCompletion 八个测试文件）；Kernel 205/205、Service 60/60 回归全绿。
+   - **壳层覆盖账（Linux 沙箱口径，coverlet cobertura）**：分支点 63 个，Linux 可测 58 个中 **55/58 = 94.83%**；Windows 专属 5 个分支点（SingleInstanceLaunch，Linux 跳过）由 windows-ci 实跑出账。
+   - **改造过程修掉 3 个真缺陷**：①PipeClient 空载荷应答先抛干净 InvalidDataException（原会炸原始 JSON 异常）；②PipeClient 断线重连：CallAsync 对 attempt==0 的 IOException 弃旧换新重试一次（服务重启/单应答即关场景）；③AppJsonContext 加 `[ExcludeFromCodeCoverage]`（源生成代码出账干扰）。
+   - **剩余 3 处半分支归类停追（均有实证）**：
+     - PipeClient.CallAsync catch 内 `_pipe?.Dispose()` 空侧：结构性不可达——进该 catch 的前提是连接已成功（`_pipe` 必非空）；连接失败抛 TimeoutException 不匹配 `catch (IOException)`（沙箱实测）。
+     - PipeClient.EnsureConnectedAsync `_pipe?.Dispose()` 非空侧：Linux 不可达——Unix UDS 对端关闭后 `IsConnected` 仍为 true（沙箱实测），到达该行时 `_pipe` 恒为 null；Windows 真机行为不同，留 windows-ci 出账。
+     - ServiceSupervisor `process is null` 防御分支：`Process.Start`（UseShellExecute=false）失败时抛异常不返回 null，结构性不可达。
+   - **踩坑记录**：①cobertura 解析必须按（类, 方法, 条件号）三元组去重——同类不同方法的条件号会撞号，按类去重会漏账（本班实测漏 3 处）；②`condition-coverage` 是百分比字符串、`number` 是条件号不是分支数，直接 int() 会炸；③Unix UDS 上「写完立即关」会重置连接，回环服务端应答后须保持 ≥150ms 窗口；④Linux 上连不存在管道抛 TimeoutException（3 秒超时）而非 IOException，写异常类测试前先实测异常类型。
+
 ## 跑法备忘
 - `mkdir -p /run/user/0`；`export DOTNET_ROOT=/root/workspace/.local/dotnet10 DOTNET_ROLL_FORWARD=LatestMajor`，PATH 前置 dotnet10。
 - `dotnet test tests/TaoSearch.Kernel.Tests/... --collect:"XPlat Code Coverage;Format=cobertura"`，账在 TestResults/*/coverage.cobertura.xml。

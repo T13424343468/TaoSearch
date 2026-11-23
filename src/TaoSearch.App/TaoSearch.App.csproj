@@ -25,6 +25,7 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\TaoSearch.App.Core\TaoSearch.App.Core.csproj" />
     <ProjectReference Include="..\TaoSearch.Kernel.Contracts\TaoSearch.Kernel.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>

@@ -1,4 +1,4 @@
-namespace TaoSearch.App.ViewModels;
+namespace TaoSearch.App.Core;
 
 /// <summary>结果行 ViewModel：列表绑定单元（属性全部 init-only，无需变更通知），预览高亮区间转高亮段。</summary>
 public sealed class HitViewModel
