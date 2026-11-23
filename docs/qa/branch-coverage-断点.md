@@ -31,7 +31,13 @@
    - 已覆盖：FsIndexEngine 空卷前缀（MarkRestored("")）、NameIndex 墓碑同键重插（-2 墓碑探测组合）、词条长于名字、首字节命中后失配、'{'/'[' 越界字母判定组合、空名记录 TryGet、HotTermCache 同词覆盖出账、全文快照尾 CRC 缺失（截尾 4 字节）/坏体 CRC（保留原 trailer）/词条记录越界三组合（负 offset/负 idCount/第三词条 idOffset 越界——docIdBytes 由词条记录自和，须改 idOffset 而非 idBytes）/未定义文档引用、QueryParser regex:/case:/wholeword:/未知前缀/size:>（ParseSizeBytes 空串）/dm 四段两变体、JournalSink 弃用后轮转短路、JournalWriter 负长度帧+超 1MB 限长度帧。
    - **踩坑记录**：①全文快照正文 CRC 覆盖 header[..24] + 28..^4（头 CRC 4 字节不在正文 CRC 内，重算 trailer 不能整流哈希）；②docIdBytes 由词条记录 idBytes 自和得出，改单条 idBytes 只会炸「ID 列表区不完整」，越界支路须改 idOffset；③JournalWriter.Replay 前必须先写 "TSSJ"+版本头，否则报「journal 文件头损坏」；④TestResults 多 GUID 目录并存，取账必须按 mtime 取最新，字典序最大是旧账（本班踩过：假账 87.63% vs 真账 88.82%）。
    - **结构性不可达/插桩伪影（不再追）**：NameIndexSnapshot.cs:202 装载期 GrowHash（恢复构造预分配 hashCap*LF ≥ active+1，装载中 (count+1)>(hashCap-1)*LF 恒假，区间数学为空）；FullTextPersistence.cs:22 与 IndexPersistence.cs:94 的 `GetDirectoryName(GetFullPath(..)) ??"."`（GetFullPath 后永不为 null，防御式写法）；ThrottledWriteStream.cs:104 disposing=false（无终结器）；NameIndex 153/160/258/362/389、QueryParser 82/147、InvertedIndexSnapshot 197 为短路不可达组合或 ternary/fixed/switch 插桩伪影（两臂实测均执行过仍记 1/2）。
-   - **剩余缺口只有一类**：MftScanner 0/32 + UsnJournalListener 0/38 真卷分支（需云端 Windows 管理员卷，另有安排）+ Program 进程级模式（Global 互斥体挡）+ App 壳层未出账（候老板拍板：重构抽取 vs 进程内插桩）。
+   - **剩余缺口只有一类**：MftScanner 0/32 + UsnJournalListener 0/38 真卷分支（需云端 Windows 管理员卷，另有安排）+ Program 进程级模式（Global 互斥体挡）+ App 壳层未出账（研发总监终裁：壳层 100% 覆盖走「可测逻辑抽独立程序集」路线，原型标注随下轮交付，主班重构中）。
+
+5. **Service.Tests 第二批已落（2026-11-23 11:xx 班，ServiceBranchGapsTests.cs 17 用例，60/60 绿）**：
+   - **Service 分支覆盖 56.46% → 61.02%**（同口径 730/1293 → 789/1293，含生成代码、不含壳层）。
+   - 已覆盖：SearchEngine 非法正则空终批、BatchSize=0 钳位、空词浏览+ext 过滤、wholeword 两侧、size 上下限、dm 日期区间、path 前缀子目录、ScanCap 10 万条截断不挂起、全文命中文件已删跳过、双路命中合并、0 字节/内容不一致预览置空、多词窗口、重复词区间封顶 8；ContentIndexer 无日志事件、日志流写炸只记清单（先写后应用索引仍生效）、失败清单环形淘汰至 100 条。
+   - **踩坑记录**：①BatchSize=0 经 Math.Max(1,0)=1，每批只走 1 条，断言分批次数时按此口径；②未知扩展名静默跳过、不进失败清单，淘汰环形清单的测试须用「不存在文件」驱动；③C# List 取末元素用 `[^1]` 不是 `[-1]`。
+   - Service 侧剩余缺口：Program 进程级归云端（同第 3 项）、PipeSession 87 行超限帧断开需管道夹具（留下一班）、ServiceHost 两处零星、PathFilter.Exclude 解析器未接经公共 API 不可达（归插桩伪影类停追）。
 
 ## 跑法备忘
 - `mkdir -p /run/user/0`；`export DOTNET_ROOT=/root/workspace/.local/dotnet10 DOTNET_ROLL_FORWARD=LatestMajor`，PATH 前置 dotnet10。
