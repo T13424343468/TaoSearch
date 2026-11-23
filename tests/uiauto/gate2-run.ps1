@@ -139,6 +139,9 @@ New-Item -ItemType Directory -Force -Path "$testVolume\docs" | Out-Null
 Set-Content "$testVolume\readme.txt" 'TaoSearch gate2 smoke volume'
 Set-Content "$testVolume\docs\发票明细.txt" '测试中文文件名与内容'
 Set-Content "$testVolume\docs\notes.md" '# notes gate2'
+# 0.1.0.15 多批回归语料：250 个 batch-* 文件，命中超一批（BatchSize=200）逼出流式多帧路径
+New-Item -ItemType Directory -Force -Path "$testVolume\batch" | Out-Null
+foreach ($i in 1..250) { Set-Content "$testVolume\batch\batch-$i.txt" "batch corpus file $i" }
 
 # ---- 启动服务（指向小卷；数据目录注入临时路径防污染） ----
 Log '== 启动服务 =='
@@ -535,6 +538,45 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
             Screenshot 'G2-22-content-search'
         }
     } catch { Check 'G2-22' "内容页签异常: $_" $false $true }
+
+    # ---- 多批搜索回归（G2-32，0.1.0.15 真机红灯：命中超一批残帧滞留管道，第二笔搜索全落空）----
+    Log '== 多批搜索回归（命中超 200） =='
+    try {
+        if ($win) {
+            $editM = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Edit)))
+            $multiHit = $false
+            $nextHit = $false
+            if ($editM) {
+                # 第一笔：batch 命中 250 条（>200，服务端回多批）
+                ($editM.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue('batch')
+                foreach ($i in 1..15) {
+                    Start-Sleep -Seconds 2
+                    $itemsM = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                        (New-Object System.Windows.Automation.PropertyCondition(
+                            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                            [System.Windows.Automation.ControlType]::ListItem)))
+                    if ($itemsM.Count -gt 0) { $multiHit = $true; break }
+                }
+                Screenshot 'G2-32a-multibatch-first'
+                # 第二笔：修复前残帧滞留会让这一笔落空（真机实锤路径）
+                ($editM.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).SetValue('smoke')
+                foreach ($i in 1..15) {
+                    Start-Sleep -Seconds 2
+                    $itemsN = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                        (New-Object System.Windows.Automation.PropertyCondition(
+                            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                            [System.Windows.Automation.ControlType]::ListItem)))
+                    if ($itemsN.Count -gt 0) { $nextHit = $true; break }
+                }
+                Screenshot 'G2-32b-multibatch-next'
+            }
+            Check 'G2-32a' '命中超 200 条的多批搜索出结果' $multiHit $true
+            Check 'G2-32b' '多批搜索后紧接第二笔仍命中（残帧不复用）' $nextHit $true
+        } else { Check 'G2-32' '主窗不可达，多批搜索未执行' $false $true }
+    } catch { Check 'G2-32' "多批搜索异常: $_" $false $true }
 
     # ---- 快速窗输入即搜（G2-23，全面覆盖令）----
     Log '== 快速窗输入即搜 =='
