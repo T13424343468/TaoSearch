@@ -18,7 +18,7 @@ public sealed class SearchGateway : ISearchGateway
     public async Task<ResultBatch> SearchAsync(string text, QueryScope scope, int batchSize, CancellationToken ct = default)
     {
         await EnsureServiceAsync(ct).ConfigureAwait(false);
-        return await _pipe.CallAsync<QuerySpec, ResultBatch>(IpcMethod.Search,
+        return await _pipe.CallSearchAsync(
             new QuerySpec { Text = text, Scope = scope, BatchSize = batchSize }, ct);
     }
 

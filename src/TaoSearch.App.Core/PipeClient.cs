@@ -79,6 +79,71 @@ public sealed class PipeClient : IDisposable
                     _pipe?.Dispose();
                     _pipe = null;
                 }
+                catch (OperationCanceledException)
+                {
+                    // 取消可能发生在帧中途，残留半帧会毒化连接：弃管道，下次调用重连
+                    _pipe?.Dispose();
+                    _pipe = null;
+                    throw;
+                }
+            }
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// 搜索请求：服务端按 BatchSize 流式回多批直至 IsFinal 终帧，本方法连续读帧聚合。
+    /// 真机红灯修复（0.1.0.15）：此前只读一帧即返回，命中超一批时残余帧滞留管道，
+    /// 下一次请求读到上一单残帧，协议错位后所有搜索全部落空。
+    /// </summary>
+    public async Task<ResultBatch> CallSearchAsync(QuerySpec request, CancellationToken ct = default)
+    {
+        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(request, AppJsonContext.Default.Options);
+        byte[] frame = BuildFrame(IpcMethod.Search, payload);
+
+        await _gate.WaitAsync(ct);
+        try
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                var hits = new List<SearchHit>();
+                long total = 0;
+                try
+                {
+                    var pipe = await EnsureConnectedAsync(ct);
+                    await pipe.WriteAsync(frame, ct);
+                    await pipe.FlushAsync(ct);
+
+                    while (true)
+                    {
+                        var header = new byte[12];
+                        await ReadExactlyAsync(pipe, header, ct);
+                        int respLen = BitConverter.ToInt32(header, 0);
+                        if (respLen <= 0) throw new InvalidDataException($"empty response for {IpcMethod.Search}");
+                        var respPayload = new byte[respLen];
+                        await ReadExactlyAsync(pipe, respPayload, ct);
+                        var batch = JsonSerializer.Deserialize<ResultBatch>(respPayload, AppJsonContext.Default.Options)
+                            ?? throw new InvalidDataException($"empty response for {IpcMethod.Search}");
+                        total = batch.TotalEstimate;
+                        hits.AddRange(batch.Hits);
+                        if (batch.IsFinal)
+                        {
+                            return new ResultBatch { Hits = hits, TotalEstimate = total, IsFinal = true };
+                        }
+                    }
+                }
+                catch (IOException) when (attempt == 0)
+                {
+                    _pipe?.Dispose();
+                    _pipe = null;
+                }
+                catch (OperationCanceledException)
+                {
+                    // 半帧中断毒化连接：弃管道，下次调用重连
+                    _pipe?.Dispose();
+                    _pipe = null;
+                    throw;
+                }
             }
         }
         finally { _gate.Release(); }

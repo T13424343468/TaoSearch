@@ -94,7 +94,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var scope = IsContentScope ? QueryScope.Filename | QueryScope.Content : QueryScope.Filename;
             var batch = await _gateway.SearchAsync(Query, scope, 200, ct);
             Hits.Clear();
-            foreach (var hit in SortAndFilter(batch.Hits))
+            // 流式聚合后命中可能上万：列表只展示前 200 条（与单批口径一致），总数以状态栏为准
+            foreach (var hit in SortAndFilter(batch.Hits).Take(200))
             {
                 Hits.Add(ToViewModel(hit));
             }

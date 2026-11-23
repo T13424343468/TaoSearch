@@ -120,6 +120,17 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public async Task Search_Over200Hits_ListCappedAt200_TotalShowsFull()
+    {
+        // 流式聚合后命中可能上万：列表只展示前 200 条，总数以状态栏为准
+        var hits = Enumerable.Range(1, 250).Select(i => Hit($@"D:\f{i}.txt", $"f{i}.txt")).ToList();
+        var gw = new FakeGateway { SearchBatch = new ResultBatch { Hits = hits, TotalEstimate = 250 } };
+        var vm = new MainViewModel(gw) { Query = "abc" };
+        await Poll.UntilAsync(() => vm.Hits.Count == 200);
+        Assert.Contains("共 250 个结果", vm.StatusText);
+    }
+
+    [Fact]
     public async Task Search_NoHits_ShowsNotFound()
     {
         var gw = new FakeGateway { SearchBatch = new ResultBatch { Hits = [], TotalEstimate = 0 } };

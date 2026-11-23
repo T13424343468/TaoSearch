@@ -4,137 +4,155 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
+    <!-- 0.1.0.15 布局修复：去掉 760px 左对齐窄列（右侧大片留白、内容被迫长scroll），
+         改双列栅格铺满窗宽，标准窗口一屏放下；控件名与事件保持不变 -->
     <ScrollViewer Padding="16">
-        <StackPanel Spacing="12" MaxWidth="760" HorizontalAlignment="Left">
+        <StackPanel Spacing="12">
             <TextBlock Text="设置" FontSize="{StaticResource FontTitle}" Style="{StaticResource BodyText}" />
 
-            <!-- 索引状态卡 -->
-            <Border Style="{StaticResource CardBorder}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="索引状态" Style="{StaticResource BodyText}" />
-                    <TextBlock Style="{StaticResource AuxText}" Text="已索引文件" />
-                    <TextBlock Text="{x:Bind ViewModel.FileCount, Mode=OneWay}" Style="{StaticResource BodyText}" />
-                    <TextBlock Style="{StaticResource AuxText}" Text="索引状态" />
-                    <TextBlock Text="{x:Bind ViewModel.IndexState, Mode=OneWay}" Style="{StaticResource BodyText}" />
-                    <TextBlock Style="{StaticResource AuxText}" Text="待索引内容队列" />
-                    <TextBlock Text="{x:Bind ViewModel.PendingQueue, Mode=OneWay}" Style="{StaticResource BodyText}" />
-                    <TextBlock x:Name="AutoRefreshNote" Text="进入本页自动加载，每 5 秒自动刷新。" Style="{StaticResource AuxText}" />
-                </StackPanel>
-            </Border>
+            <Grid ColumnSpacing="12" RowSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="320" />
+                    <ColumnDefinition Width="*" MinWidth="320" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-            <!-- 索引操作卡 -->
-            <Border Style="{StaticResource CardBorder}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="索引操作" Style="{StaticResource BodyText}" />
-                    <Button Content="重建索引" Click="OnRebuild" MinWidth="160" />
-                    <Button x:Name="PauseButton" Click="OnTogglePause" MinWidth="160">
-                        <TextBlock Text="{x:Bind ViewModel.Paused, Mode=OneWay, Converter={StaticResource PausedToTextConverter}}" />
-                    </Button>
-                </StackPanel>
-            </Border>
-
-            <!-- 索引库位置卡（按钮纵向排列：不再并排挤压截断） -->
-            <Border Style="{StaticResource CardBorder}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="索引库位置" Style="{StaticResource BodyText}" />
-                    <TextBlock Text="{x:Bind ViewModel.IndexLocation, Mode=OneWay}" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                <!-- 索引状态卡 -->
+                <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource CardBorder}">
                     <StackPanel Spacing="8">
-                        <Button Content="更改位置…" Click="OnChangeIndexLocation" MinWidth="160" HorizontalAlignment="Left" />
-                        <Button Content="恢复默认位置（D:\TaoSearch\Index）" Click="OnResetIndexLocation" MinWidth="160" HorizontalAlignment="Left" />
+                        <TextBlock Text="索引状态" Style="{StaticResource BodyText}" />
+                        <TextBlock Style="{StaticResource AuxText}" Text="已索引文件" />
+                        <TextBlock Text="{x:Bind ViewModel.FileCount, Mode=OneWay}" Style="{StaticResource BodyText}" />
+                        <TextBlock Style="{StaticResource AuxText}" Text="索引状态" />
+                        <TextBlock Text="{x:Bind ViewModel.IndexState, Mode=OneWay}" Style="{StaticResource BodyText}" />
+                        <TextBlock Style="{StaticResource AuxText}" Text="待索引内容队列" />
+                        <TextBlock Text="{x:Bind ViewModel.PendingQueue, Mode=OneWay}" Style="{StaticResource BodyText}" />
+                        <TextBlock x:Name="AutoRefreshNote" Text="进入本页自动加载，每 5 秒自动刷新。" Style="{StaticResource AuxText}" />
                     </StackPanel>
-                    <TextBlock Text="更改后需重建索引生效；原索引库保留至新库建成为止。" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
-                </StackPanel>
-            </Border>
+                </Border>
 
-            <!-- 排除目录卡 -->
-            <Border Style="{StaticResource CardBorder}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="排除目录" Style="{StaticResource BodyText}" />
-                    <TextBlock Text="这些目录不参与索引（默认含系统卷信息与回收站）。" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
-                    <ListView x:Name="ExcludeList" MaxHeight="160" SelectionMode="None">
-                        <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid ColumnSpacing="8" Margin="0,2">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{Binding}" Style="{StaticResource AuxText}" VerticalAlignment="Center" />
-                                    <Button Grid.Column="1" Content="删除" Click="OnRemoveExclude" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="ExcludeInput" PlaceholderText="输入目录名或完整路径" />
-                        <Button Grid.Column="1" Content="添加" Click="OnAddExclude" />
-                    </Grid>
-                </StackPanel>
-            </Border>
-
-            <!-- 内容索引优先级卡 -->
-            <Border Style="{StaticResource CardBorder}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="内容索引后台优先级" Style="{StaticResource BodyText}" />
-                    <TextBlock Text="内容索引不与前台争抢资源；空闲档仅在系统空闲时构建。" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
-                    <ComboBox x:Name="PriorityBox" SelectionChanged="OnPriorityChanged">
-                        <ComboBoxItem Content="仅空闲时（推荐）" Tag="idle" IsSelected="True" />
-                        <ComboBoxItem Content="低优先级" Tag="low" />
-                        <ComboBoxItem Content="正常" Tag="normal" />
-                    </ComboBox>
-                </StackPanel>
-            </Border>
-
-            <!-- 主题卡 -->
-            <Border Style="{StaticResource CardBorder}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="主题" Style="{StaticResource BodyText}" />
-                    <StackPanel Orientation="Horizontal" Spacing="16">
-                        <RadioButton x:Name="ThemeShuimo" GroupName="theme" Content="水墨（浅色）" Checked="OnThemeChanged" Tag="shuimo" />
-                        <RadioButton x:Name="ThemeMobai" GroupName="theme" Content="墨白（深色）" Checked="OnThemeChanged" Tag="mobai" />
+                <!-- 索引操作卡 -->
+                <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource CardBorder}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="索引操作" Style="{StaticResource BodyText}" />
+                        <StackPanel Spacing="8">
+                            <Button Content="重建索引" Click="OnRebuild" MinWidth="160" HorizontalAlignment="Left" />
+                            <Button x:Name="PauseButton" Click="OnTogglePause" MinWidth="160" HorizontalAlignment="Left">
+                                <TextBlock Text="{x:Bind ViewModel.Paused, Mode=OneWay, Converter={StaticResource PausedToTextConverter}}" />
+                            </Button>
+                        </StackPanel>
                     </StackPanel>
-                </StackPanel>
-            </Border>
+                </Border>
 
-            <!-- 快速搜索窗卡 -->
-            <Border Style="{StaticResource CardBorder}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="快速搜索窗" Style="{StaticResource BodyText}" />
-                    <ToggleSwitch x:Name="QuickStartupToggle" Header="启动时显示快速搜索窗" Toggled="OnQuickStartupToggled" />
-                    <ToggleSwitch x:Name="HotkeyToggle" Header="全局快捷键 Alt+Q（唤起 / 隐藏快速搜索窗）" Toggled="OnHotkeyToggled" />
-                    <TextBlock x:Name="HotkeyNote" Text="" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
-                </StackPanel>
-            </Border>
+                <!-- 索引库位置卡（按钮纵向排列：不再并排挤压截断） -->
+                <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource CardBorder}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="索引库位置" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{x:Bind ViewModel.IndexLocation, Mode=OneWay}" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                        <StackPanel Spacing="8">
+                            <Button Content="更改位置…" Click="OnChangeIndexLocation" MinWidth="160" HorizontalAlignment="Left" />
+                            <Button Content="恢复默认位置（D:\TaoSearch\Index）" Click="OnResetIndexLocation" MinWidth="160" HorizontalAlignment="Left" />
+                        </StackPanel>
+                        <TextBlock Text="更改后需重建索引生效；原索引库保留至新库建成为止。" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
 
-            <!-- 存储位置卡（数据目录只读说明） -->
-            <Border Style="{StaticResource CardBorder}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="存储位置" Style="{StaticResource BodyText}" />
-                    <TextBlock Text="{x:Bind ViewModel.StorageLocation}" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
-                </StackPanel>
-            </Border>
+                <!-- 排除目录卡 -->
+                <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource CardBorder}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="排除目录" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="这些目录不参与索引（默认含系统卷信息与回收站）。" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                        <ListView x:Name="ExcludeList" MaxHeight="160" SelectionMode="None">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnSpacing="8" Margin="0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding}" Style="{StaticResource AuxText}" VerticalAlignment="Center" />
+                                        <Button Grid.Column="1" Content="删除" Click="OnRemoveExclude" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="ExcludeInput" PlaceholderText="输入目录名或完整路径" />
+                            <Button Grid.Column="1" Content="添加" Click="OnAddExclude" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
 
-            <!-- 开机自启卡（MSIX StartupTask 口径，真机验收补清单声明） -->
-            <Border Style="{StaticResource CardBorder}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="开机自启" Style="{StaticResource BodyText}" />
-                    <ToggleSwitch x:Name="StartupToggle" Toggled="OnStartupToggled" />
-                </StackPanel>
-            </Border>
+                <!-- 内容索引优先级卡 -->
+                <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource CardBorder}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="内容索引后台优先级" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="内容索引不与前台争抢资源；空闲档仅在系统空闲时构建。" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                        <ComboBox x:Name="PriorityBox" SelectionChanged="OnPriorityChanged">
+                            <ComboBoxItem Content="仅空闲时（推荐）" Tag="idle" IsSelected="True" />
+                            <ComboBoxItem Content="低优先级" Tag="low" />
+                            <ComboBoxItem Content="正常" Tag="normal" />
+                        </ComboBox>
+                    </StackPanel>
+                </Border>
 
-            <!-- 关于卡 -->
-            <Border Style="{StaticResource CardBorder}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="关于" Style="{StaticResource BodyText}" />
-                    <TextBlock Text="{x:Bind AboutLine, Mode=OneWay}" Style="{StaticResource AuxText}" />
-                    <TextBlock Text="无广告、无捆绑、数据全本地。" Style="{StaticResource AuxText}" />
-                    <Button Content="检查更新" Click="OnCheckUpdate" MinWidth="160" HorizontalAlignment="Left" />
-                </StackPanel>
-            </Border>
+                <!-- 主题卡 -->
+                <Border Grid.Row="2" Grid.Column="1" Style="{StaticResource CardBorder}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="主题" Style="{StaticResource BodyText}" />
+                        <StackPanel Orientation="Horizontal" Spacing="16">
+                            <RadioButton x:Name="ThemeShuimo" GroupName="theme" Content="水墨（浅色）" Checked="OnThemeChanged" Tag="shuimo" />
+                            <RadioButton x:Name="ThemeMobai" GroupName="theme" Content="墨白（深色）" Checked="OnThemeChanged" Tag="mobai" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- 快速搜索窗卡 -->
+                <Border Grid.Row="3" Grid.Column="0" Style="{StaticResource CardBorder}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="快速搜索窗" Style="{StaticResource BodyText}" />
+                        <ToggleSwitch x:Name="QuickStartupToggle" Header="启动时显示快速搜索窗" Toggled="OnQuickStartupToggled" />
+                        <ToggleSwitch x:Name="HotkeyToggle" Header="全局快捷键 Alt+Q（唤起 / 隐藏快速搜索窗）" Toggled="OnHotkeyToggled" />
+                        <TextBlock x:Name="HotkeyNote" Text="" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 存储位置卡（数据目录只读说明） -->
+                <Border Grid.Row="3" Grid.Column="1" Style="{StaticResource CardBorder}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="存储位置" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{x:Bind ViewModel.StorageLocation}" Style="{StaticResource AuxText}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 开机自启卡（MSIX StartupTask 口径，真机验收补清单声明） -->
+                <Border Grid.Row="4" Grid.Column="0" Style="{StaticResource CardBorder}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="开机自启" Style="{StaticResource BodyText}" />
+                        <ToggleSwitch x:Name="StartupToggle" Toggled="OnStartupToggled" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 关于卡 -->
+                <Border Grid.Row="4" Grid.Column="1" Style="{StaticResource CardBorder}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="关于" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{x:Bind AboutLine, Mode=OneWay}" Style="{StaticResource AuxText}" />
+                        <TextBlock Text="无广告、无捆绑、数据全本地。" Style="{StaticResource AuxText}" />
+                        <Button Content="检查更新" Click="OnCheckUpdate" MinWidth="160" HorizontalAlignment="Left" />
+                    </StackPanel>
+                </Border>
+            </Grid>
         </StackPanel>
     </ScrollViewer>
 </Page>
