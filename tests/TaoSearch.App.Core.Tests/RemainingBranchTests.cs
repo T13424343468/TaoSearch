@@ -38,7 +38,9 @@ public class RemainingBranchTests
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             await ServiceSupervisor.EnsureRunningAsync();
-            Assert.True(sw.ElapsedMilliseconds < 5000, $"took {sw.ElapsedMilliseconds}ms");
+            // 判据=异常被吞且不悬挂（监督器自身窗口 15s）；云端 runner 负载下 Process.Start
+            // 异常路径实测 6.5s（run 45147723071），5s 阈值属抖动误杀，放宽到 20s
+            Assert.True(sw.ElapsedMilliseconds < 20000, $"took {sw.ElapsedMilliseconds}ms");
         }
         finally { File.Delete(exe); }
     }
