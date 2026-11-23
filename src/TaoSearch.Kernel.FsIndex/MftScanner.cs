@@ -78,7 +78,8 @@ public sealed class MftScanner
             return MftScanOutcome.Fail(openError != 0 ? openError : Win32ErrorAccessDenied);
 
         byte[] buffer = new byte[InitialBufferBytes];
-        var input = new MftInterop.MftEnumInput { StartFileReference = 0, LowUsn = 0, HighUsn = ulong.MaxValue };
+        // 探针实测（2026-11-23 云端 runner）：usn=(0,0) 成功返回记录、(0,MAX) 报 38——全量枚举用 (0,0)（无 USN 过滤）
+        var input = new MftInterop.MftEnumInput { StartFileReference = 0, LowUsn = 0, HighUsn = 0 };
         int inputSize = Marshal.SizeOf<MftInterop.MftEnumInput>();
         var inputBytes = new byte[inputSize];
         long recordCount = 0;
