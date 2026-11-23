@@ -26,7 +26,12 @@
    - 首建路径（MFT 真扫描）以 `OperatingSystem.IsWindows()` 守卫转云端 CI 实测（首建落快照、损坏快照降级首建两条，云端已跑绿）。
    - 踩坑记录：FallbackEntry 第二参是 Size 不是 FileReference（引用号须从 EnumerateLivePaths 取）；夹具 JournalSink 写帧后必须 Dispose 释放句柄，否则 Windows 上检查点轮转删不掉打开中的日志文件（云端 CI 实测红灯一次）。
    - Service 侧剩余缺口：Program 控制台/服务模式（被 Global 互斥体挡，Linux 跑不了，需云端 Windows 进程级实测）、UsnJournalListener/事件泵真源（同 NTFS 依赖，归第 1 项）、ServiceJsonContext 源生成桩（序列化器自动生成代码，意义有限）。
-4. 零星 50% 分支：FsIndexEngine Dispose catch 支路、HotTermCache LRU 空链路、Tokenizer CJK 边界 2 支、InvertedIndex 查询组合支路。
+4. **零星 50% 分支已收口（第三批，2026-11-23 10:xx 班，MiscBranchGapsTests.cs 19 用例，205/205 绿）**：
+   - **Kernel 分支覆盖 85.79% → 88.82%**（675/760）；FsIndexEngine 44/44 满账、JournalWriter 48/48 满账、HotTermCache 满账。
+   - 已覆盖：FsIndexEngine 空卷前缀（MarkRestored("")）、NameIndex 墓碑同键重插（-2 墓碑探测组合）、词条长于名字、首字节命中后失配、'{'/'[' 越界字母判定组合、空名记录 TryGet、HotTermCache 同词覆盖出账、全文快照尾 CRC 缺失（截尾 4 字节）/坏体 CRC（保留原 trailer）/词条记录越界三组合（负 offset/负 idCount/第三词条 idOffset 越界——docIdBytes 由词条记录自和，须改 idOffset 而非 idBytes）/未定义文档引用、QueryParser regex:/case:/wholeword:/未知前缀/size:>（ParseSizeBytes 空串）/dm 四段两变体、JournalSink 弃用后轮转短路、JournalWriter 负长度帧+超 1MB 限长度帧。
+   - **踩坑记录**：①全文快照正文 CRC 覆盖 header[..24] + 28..^4（头 CRC 4 字节不在正文 CRC 内，重算 trailer 不能整流哈希）；②docIdBytes 由词条记录 idBytes 自和得出，改单条 idBytes 只会炸「ID 列表区不完整」，越界支路须改 idOffset；③JournalWriter.Replay 前必须先写 "TSSJ"+版本头，否则报「journal 文件头损坏」；④TestResults 多 GUID 目录并存，取账必须按 mtime 取最新，字典序最大是旧账（本班踩过：假账 87.63% vs 真账 88.82%）。
+   - **结构性不可达/插桩伪影（不再追）**：NameIndexSnapshot.cs:202 装载期 GrowHash（恢复构造预分配 hashCap*LF ≥ active+1，装载中 (count+1)>(hashCap-1)*LF 恒假，区间数学为空）；FullTextPersistence.cs:22 与 IndexPersistence.cs:94 的 `GetDirectoryName(GetFullPath(..)) ??"."`（GetFullPath 后永不为 null，防御式写法）；ThrottledWriteStream.cs:104 disposing=false（无终结器）；NameIndex 153/160/258/362/389、QueryParser 82/147、InvertedIndexSnapshot 197 为短路不可达组合或 ternary/fixed/switch 插桩伪影（两臂实测均执行过仍记 1/2）。
+   - **剩余缺口只有一类**：MftScanner 0/32 + UsnJournalListener 0/38 真卷分支（需云端 Windows 管理员卷，另有安排）+ Program 进程级模式（Global 互斥体挡）+ App 壳层未出账（候老板拍板：重构抽取 vs 进程内插桩）。
 
 ## 跑法备忘
 - `mkdir -p /run/user/0`；`export DOTNET_ROOT=/root/workspace/.local/dotnet10 DOTNET_ROLL_FORWARD=LatestMajor`，PATH 前置 dotnet10。
