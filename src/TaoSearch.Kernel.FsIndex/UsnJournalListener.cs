@@ -36,9 +36,10 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
 
     private async Task ListenLoop(CancellationToken ct)
     {
-        // 打开卷句柄（需要管理员或卷读权限；无权限时上层降级慢路径）
+        // 打开卷设备句柄（\\.\C:，卷级 FSCTL 必需；目录句柄上 FSCTL 返回错误 1，云端 runner 实测）。
+        // 需要管理员或卷读权限；无权限时上层降级慢路径。
         using var volume = MftInterop.CreateFileW(
-            _volume, MftInterop.GenericRead, MftInterop.ShareRead,
+            MftScanner.ToVolumeDevicePath(_volume), MftInterop.GenericRead, MftInterop.ShareRead,
             0, MftInterop.OpenExisting, MftInterop.BackupSemantics, 0);
         if (volume.IsInvalid) return;
 
@@ -51,9 +52,10 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
         while (!ct.IsCancellationRequested)
         {
             int read = ReadUsn(volume, readArgs, buffer);
-            if (read <= 0) { await Task.Delay(100, ct); continue; }
+            if (read <= sizeof(long)) { await Task.Delay(100, ct); continue; }   // 仅 8 字节 next-USN 头 = 无新记录
 
-            int offset = 0;
+            // 输出缓冲布局：前 8 字节为下次续读 USN，其后为连续 USN_RECORD_V2
+            int offset = sizeof(long);
             while (offset < read)
             {
                 var record = MemoryMarshal.Read<MftInterop.UsnRecordV2>(buffer.AsSpan(offset));
@@ -77,7 +79,7 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
                 }
                 offset += record.RecordLength;
             }
-            readArgs.NextUsn = ReadLastUsn(buffer, read);
+            readArgs.NextUsn = BitConverter.ToInt64(buffer, 0);   // 缓冲头 8 字节 = 下次续读 USN
         }
     }
 
@@ -130,9 +132,6 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
         try { return h.AddrOfPinnedObject(); }
         finally { h.Free(); }
     }
-
-    private static long ReadLastUsn(byte[] buffer, int length) =>
-        length >= 8 ? BitConverter.ToInt64(buffer, length - 8) : 0;
 
     private sealed class ReadJournalArgs(ulong journalId, long nextUsn)
     {

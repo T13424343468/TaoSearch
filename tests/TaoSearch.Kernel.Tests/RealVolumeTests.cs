@@ -139,11 +139,13 @@ public sealed class RealVolumeTests
     {
         if (SkipOnNonWindows()) return;
 
-        // 普通目录句柄可打开（BackupSemantics），但 FSCTL_QUERY_USN_JOURNAL 失败 → QueryJournal 返回 null → 循环退出
-        string dir = Path.Combine(Path.GetTempPath(), "taosearch-usn-neg-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
+        // UNC 管理共享下的目录句柄可打开（BackupSemantics），但卷级 FSCTL_QUERY_USN_JOURNAL 不适用
+        // → QueryJournal 返回 null → 监听循环静默退出（卷设备路径映射只认盘符形态，UNC 原样打开）
+        string localTemp = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        string uncDir = @"\\localhost\" + localTemp[0] + "$" + localTemp[2..] + @"\taosearch-usn-neg-" + Guid.NewGuid().ToString("N");
+        try { Directory.CreateDirectory(uncDir); } catch (Exception) { }
 
-        using var listener = new UsnJournalListener(dir);
+        using var listener = new UsnJournalListener(uncDir);
         listener.Start();
 
         int count = 0;
@@ -157,7 +159,7 @@ public sealed class RealVolumeTests
 
         Assert.Equal(0, count);
 
-        try { Directory.Delete(dir, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        try { Directory.Delete(uncDir, true); } catch (Exception) { }
     }
 
     private static void WithLock(Action f) { lock (_gate) f(); }

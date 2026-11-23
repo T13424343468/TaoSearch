@@ -29,6 +29,7 @@ public sealed class MftScanner
 {
     public const int Win32ErrorAccessDenied = 5;
     public const int Win32ErrorMoreData = 234;
+    public const int Win32ErrorInvalidFunction = 1;
 
     private const int InitialBufferBytes = 1 << 20;   // 1MB 起步
     private const int MaxBufferBytes = 16 << 20;      // 16MB 封顶
@@ -36,11 +37,43 @@ public sealed class MftScanner
 
     public delegate void RecordSink(long fileReference, long parentReference, string fileName);
 
+    /// <summary>
+    /// 卷级 FSCTL（FSCTL_ENUM_USN_DATA / QUERY·READ_USN_JOURNAL）需要卷设备句柄（\\.\C:），
+    /// 目录句柄上返回 ERROR_INVALID_FUNCTION(1)（2026-11-23 云端 runner 真卷实测）。
+    /// 把任意路径映射到其所在卷的设备路径；UNC 等无法映射的原样返回（打开失败由引擎降级慢路径）。
+    /// </summary>
+    public static string ToVolumeDevicePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return path;
+        if (path.StartsWith(@"\\.\", StringComparison.Ordinal)) return path;
+        try
+        {
+            string root = Path.GetPathRoot(path) ?? string.Empty;
+            if (root.Length >= 2 && root[1] == ':')
+                return @"\\.\" + root[0] + ":";
+        }
+        catch (Exception)
+        {
+            // 非法路径：原样返回，由打开失败统一降级
+        }
+        return path;
+    }
+
     public unsafe MftScanOutcome Scan(string volumeRoot, RecordSink sink, CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
+
+        // MFT 全量枚举是整卷语义（枚举整个 NTFS 卷的记录），仅适用于卷根（如 "C:\"）；
+        // 子目录根交由引擎降级目录递归慢路径（云端 runner 真卷实测：目录句柄上 FSCTL 返回错误 1）。
+        string trimmed = volumeRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string root = Path.GetPathRoot(volumeRoot) ?? string.Empty;
+        bool isVolumeRoot = root.Length >= 2 && root[1] == ':'
+            && string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+        if (!isVolumeRoot)
+            return MftScanOutcome.Fail(Win32ErrorInvalidFunction);
+
         using var volume = MftInterop.OpenPath(
-            volumeRoot, MftInterop.GenericRead, MftInterop.ShareRead, MftInterop.BackupSemantics, out int openError);
+            ToVolumeDevicePath(volumeRoot), MftInterop.GenericRead, MftInterop.ShareRead, MftInterop.BackupSemantics, out int openError);
         if (volume.IsInvalid)
             return MftScanOutcome.Fail(openError != 0 ? openError : Win32ErrorAccessDenied);
 
