@@ -60,3 +60,13 @@
 - `mkdir -p /run/user/0`；`export DOTNET_ROOT=/root/workspace/.local/dotnet10 DOTNET_ROLL_FORWARD=LatestMajor`，PATH 前置 dotnet10。
 - `dotnet test tests/TaoSearch.Kernel.Tests/... --collect:"XPlat Code Coverage;Format=cobertura"`，账在 TestResults/*/coverage.cobertura.xml。
 - 测试文件 UTF-8 带 BOM；只加 tests/ 不改 src/。
+
+8. **真卷整改连续修红班（2026-11-23 16:xx 班，老板令「按最新制度全面整改」）**：
+   - **FSCTL 控制码权威值定版（b01ac23）**：ntifs.h 核对 ENUM=0x000900B3（功能号44 METHOD_NEITHER，原 0x000900b4 未定义码恒 err=1）；READ=0x000900BB、CREATE=0x000900E7 原值正确回退；QUERY=0x000900F4 恒对。
+   - **ENUM 入参 24 字节 V0 布局定版（24c8fc0/ad87639）**：StartRef/LowUsn/HighUsn 各 8 字节；全量口径 (0,0)——探针实测 (0,0) 返回 592 字节记录、(0,MAX) 报 38。
+   - **QUERY 应答布局定版（b01ac23）**：USN_JOURNAL_DATA=JournalID@0/FirstUsn@8/NextUsn@16，续读起点取 @16（原取 @8 实为 FirstUsn）。
+   - **READ 入参 40 字节定版（ad87639/b9f4097）**：StartUsn@0/ReasonMask@8/ReturnOnlyOnClose@12/Timeout@16/BytesToWaitFor@24/UsnJournalID@32（原 32 字节漏 ReturnOnlyOnClose 致 1784；JournalID 在前顺序报 87）。
+   - **Pin 提前释放修死（24c8fc0）**：GCHandle 覆盖 DeviceIoControl 调用全程。
+   - **ENUM 到尾信号收口（7c19805，run 45138988742 验证）**：err=38(ERROR_HANDLE_EOF) 为枚举正常耗尽信号，按正常结束返回已累计 Ok 结果；扫描不再误判失败，但断言「应含 Windows 目录」炸出新红——已加断言前诊断出证（records/sinkCalls/首尾30名/winPrefixed），下一轮云端拿证据定位。
+   - **USN reason 重命名位权威值定版（bddd735）**：winioctl.h 核对 RENAME_NEW_NAME=0x2000、RENAME_OLD_NAME=0x1000（原 0x4000/0x8000 实为 INDEXABLE_CHANGE/BASIC_INFO_CHANGE，真实重命名永不映射 Renamed）；run 45138988742 实测 Rename 用例独缺 Renamed 实锤，上一轮监听测试通过系 runner 偶发 0x4000 事件的运气。
+   - 云测 run 记账：45136914514（ENUM (0,0) 首次返回记录）、45137561729（READ ok=True ret=65480 增量监听真机已通，仅剩 MFT 扫描 err=38 一红）、45138988742（err=38 收口生效，MFT 断言缺 Windows + Rename 缺 Renamed 两红）、45140065064（reason 权威值 + MFT 诊断出证，值守中）。
