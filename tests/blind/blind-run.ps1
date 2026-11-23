@@ -102,13 +102,15 @@ function Complete-Onboarding([string]$tag) {
     if (-not $w -or -not (Invoke-ButtonByName $w '开始建立索引')) { Log "onboarding: 开始建立索引未点通"; return }
     Start-Sleep -Seconds 2; Shot "$tag-step3"
     $done = $false
-    foreach ($i in 1..180) {  # 6 分钟：真实数据规模下索引就绪
+    # 15 分钟：五轮实测 30 万级镜像索引需 6 分钟以上（run 45222019352：6 分钟收 366,939 个文件仍在继续）
+    foreach ($i in 1..450) {
         Start-Sleep -Seconds 2
         $w = Get-OnboardingWindow; if (-not $w) { $w = Get-AppWindow 'TaoSearch' }
         if ($w -and (Invoke-ButtonByName $w '完成，进入 TaoSearch')) { $done = $true; break }
+        if ($i % 60 -eq 0) { Log "onboarding: 等待索引就绪 $($i*2)s（30 万级镜像口径）" }
     }
     Shot "$tag-done-$done"
-    if ($done) { Start-Sleep -Seconds 3; Shot "$tag-main" } else { Log "onboarding: 6 分钟内未就绪（镜像规模口径，记录实际耗时）" }
+    if ($done) { Start-Sleep -Seconds 3; Shot "$tag-main" } else { Log "onboarding: 15 分钟内未就绪（记录实际耗时，产品侧观察项：大镜像首扫时长）" }
 }
 function Send-Text([string]$text) {
     [System.Windows.Forms.SendKeys]::SendWait($text)
@@ -237,7 +239,7 @@ foreach ($log in @('crash.log', 'service-crash.log', 'hotkey.log', 'app.log')) {
     if (Test-Path $src) { Copy-Item $src (Join-Path $EvidenceDir "collected-$log") -Force }
 }
 if (Test-Path 'D:\TaoSearch') {
-    Get-ChildItem 'D:\TaoSearch' -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName (Join-Path $EvidenceDir "svc-" + $_.Name) -Force -ErrorAction SilentlyContinue }
+    Get-ChildItem 'D:\TaoSearch' -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName (Join-Path $EvidenceDir ("svc-" + $_.Name)) -Force -ErrorAction SilentlyContinue }
 }
 # 服务事件日志（服务模式崩溃线索）
 try { Get-EventLog -LogName Application -Newest 50 -Source 'TaoSearch*' -ErrorAction SilentlyContinue | Out-File (Join-Path $EvidenceDir 'eventlog-taosearch.txt') -Encoding utf8 } catch {}
