@@ -31,13 +31,25 @@ public sealed class RealVolumeTests
         var scanner = new MftScanner();
         long sinkCalls = 0;
         bool sawWindowsDir = false;
+        int winPrefixed = 0;
+        var firstNames = new List<string>();
+        var lastNames = new List<string>();
         var outcome = scanner.Scan(
             @"C:\",
             (fileRef, parentRef, name) =>
             {
                 sinkCalls++;
                 if (name == "Windows") sawWindowsDir = true;
+                if (name.StartsWith("Win", StringComparison.OrdinalIgnoreCase)) winPrefixed++;
+                if (firstNames.Count < 30) firstNames.Add(name);
+                lastNames.Add(name);
+                if (lastNames.Count > 30) lastNames.RemoveAt(0);
             });
+
+        // 诊断出证先于断言：失败时证据随流水线日志归档（2026-11-23 云端实测：扫描成功但断言不见 Windows 目录）
+        _output.WriteLine($"[diag] success={outcome.Success} err={outcome.Win32Error} records={outcome.RecordCount} ms={outcome.ElapsedMilliseconds} sinkCalls={sinkCalls} winPrefixed={winPrefixed} sawWindows={sawWindowsDir}");
+        _output.WriteLine($"[diag] first30: {string.Join(" | ", firstNames)}");
+        _output.WriteLine($"[diag] last30: {string.Join(" | ", lastNames)}");
 
         Assert.True(outcome.Success, $"MFT 实扫失败：Win32Error={outcome.Win32Error}");
         Assert.True(outcome.RecordCount > 0, "系统卷 MFT 记录数应大于 0");

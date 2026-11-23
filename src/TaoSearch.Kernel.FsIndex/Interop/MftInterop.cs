@@ -102,11 +102,13 @@ internal static class MftInterop
         // 后接 FileName（UTF-16LE）
     }
 
-    // Reason 位（USN 增量事件归一用）
+    // Reason 位（USN 增量事件归一用；winioctl.h 权威值，2026-11-23 Microsoft Learn 核对：
+    // RENAME_NEW_NAME=0x2000、RENAME_OLD_NAME=0x1000——原 0x4000/0x8000 实为 INDEXABLE_CHANGE/BASIC_INFO_CHANGE，
+    // 真实重命名事件永不映射 Renamed（云端真卷实测：Rename 测试实收 Created/ContentModified/Deleted 独缺 Renamed））
     internal const uint ReasonFileCreate = 0x00000100;
     internal const uint ReasonFileDelete = 0x00000200;
-    internal const uint ReasonRenameNewName = 0x00004000;
-    internal const uint ReasonRenameOldName = 0x00008000;
+    internal const uint ReasonRenameNewName = 0x00002000;
+    internal const uint ReasonRenameOldName = 0x00001000;
     internal const uint ReasonDataOverwrite = 0x00000001;
     internal const uint ReasonDataExtend = 0x00000002;
     internal const uint ReasonDataTruncate = 0x00000004;
