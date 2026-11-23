@@ -26,13 +26,29 @@ function Shot([string]$name) {
 }
 function Get-AppWindow([string]$titlePart) {
     $root = [System.Windows.Automation.AutomationElement]::RootElement
-    $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $titlePart)
-    $w = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
-    if (-not $w) {
-        $cond2 = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ClassNameProperty, 'Microsoft.UI.Window')
-        return $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond2)
+    $all = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+    foreach ($el in $all) {
+        if ($el.Current.Name -like "*$titlePart*") { return $el }
     }
-    return $w
+    return $null
+}
+function Invoke-ButtonByName([System.Windows.Automation.AutomationElement]$w, [string]$label) {
+    $cond = New-Object System.Windows.Automation.AndCondition(
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)),
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $label)))
+    $btn = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+    if ($btn) { try { $btn.GetPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); return $true } catch { return $false } }
+    return $false
+}
+# 引导页逐页推进（B-03 修复：按按钮名精确定位，不再取第一个按钮——那是标题栏按钮）
+function Complete-Onboarding([System.Windows.Automation.AutomationElement]$w, [string]$tag) {
+    foreach ($label in @('下一步', '开始建立索引', '完成', '开始使用')) {
+        for ($try = 0; $try -lt 10; $try++) {
+            if (-not (Invoke-ButtonByName $w $label)) { break }
+            Start-Sleep -Seconds 3
+            Shot "$tag-advance-$label"
+        }
+    }
 }
 function Send-Text([string]$text) {
     [System.Windows.Forms.SendKeys]::SendWait($text)
@@ -59,13 +75,12 @@ Log "persona=xiaobai start"
 $svc = Start-Process -FilePath "$PublishDir\TaoSearch.Service.exe" -ArgumentList "`"$volume`"" -WindowStyle Hidden -PassThru
 Start-Sleep -Seconds 3
 $app = Start-Process -FilePath "$PublishDir\TaoSearch.App.exe" -WorkingDirectory $PublishDir -PassThru
-Start-Sleep -Seconds 6
-Shot 'BL-xiaobai-01-first-launch'
-# 小白不看说明：引导页逐页下一步
+Start-Sleep -Seconds 8
+Shot 'BL-xiaobai-01-first-launch' # B-01 复核口径：首启截图延后至渲染稳定（8s），若仍空白升级为缺陷
+# 小白不看说明：引导页逐页下一步（B-03 修复：按按钮名推进）
 $w = Get-AppWindow 'TaoSearch'
 if ($w) {
-    $btnNext = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)))
-    foreach ($b in $btnNext) { try { $b.GetPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Seconds 2; Shot 'BL-xiaobai-02-onboarding-click'; break } catch {} }
+    Complete-Onboarding $w 'BL-xiaobai-02'
 } else { $findings.Add("B-x01 首启未找到 TaoSearch 窗口（UIA）") }
 Start-Sleep -Seconds 8
 Shot 'BL-xiaobai-03-after-onboarding'
