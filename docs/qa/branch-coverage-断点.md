@@ -50,6 +50,12 @@
      - ServiceSupervisor `process is null` 防御分支：`Process.Start`（UseShellExecute=false）失败时抛异常不返回 null，结构性不可达。
    - **踩坑记录**：①cobertura 解析必须按（类, 方法, 条件号）三元组去重——同类不同方法的条件号会撞号，按类去重会漏账（本班实测漏 3 处）；②`condition-coverage` 是百分比字符串、`number` 是条件号不是分支数，直接 int() 会炸；③Unix UDS 上「写完立即关」会重置连接，回环服务端应答后须保持 ≥150ms 窗口；④Linux 上连不存在管道抛 TimeoutException（3 秒超时）而非 IOException，写异常类测试前先实测异常类型。
 
+7. **真卷覆盖实测已落（2026-11-23 班，RealVolumeTests.cs 5 用例，非 Benchmark 类进覆盖账）**：
+   - MftScanner 真扫系统卷（含 MoreData 扩容、续扫、元文件跳过全分支）+ 不存在卷失败支路；UsnJournalListener 真卷四类事件闭环（建/改名/改内容/删）+ 不存在卷静默退出 + UNC 非卷句柄静默退出。Linux 如实跳过留痕，windows-ci 管理员卷实跑出账。
+   - **真卷实测当场抓到到货即坏缺陷三连（修红提交 a58b966）**：①卷级 FSCTL 拿目录句柄发必败（错误 1），改卷设备句柄 `\\.\C:`（ToVolumeDevicePath 映射，UNC 原样）；②USN 记录解析未跳过缓冲头 8 字节 next-USN，把头当记录解析；③续读 USN 取缓冲尾 8 字节（应取头 8 字节），会重复读旧记录。④顺修：MFT 全量枚举加卷根守卫——子目录根整卷枚举语义不成立，原靠「MFT 必败降级」掩盖，现非卷根明确返回错误 1 由引擎降级慢路径（Service 首建测试临时目录卷根口径不受影响，走慢路径断言不变）。
+   - **连带发现**：benchmark.yml 自 11-21 起五连败且作业列表为空（工作流文件问题，从未真正执行）——「runner 走 MFT 快路径」的注释假设从未被验证；本次真卷用例是第一条真实探针。
+   - Program 进程级模式（Global 互斥体挡）同步落 windows-ci 实测步：G-P1 首实例存活 / G-P2 第二实例被互斥体挡住退出（校验占用文案）/ G-P3 首实例不受影响 / G-P4 收尾，日志随测试证据归档。
+
 ## 跑法备忘
 - `mkdir -p /run/user/0`；`export DOTNET_ROOT=/root/workspace/.local/dotnet10 DOTNET_ROLL_FORWARD=LatestMajor`，PATH 前置 dotnet10。
 - `dotnet test tests/TaoSearch.Kernel.Tests/... --collect:"XPlat Code Coverage;Format=cobertura"`，账在 TestResults/*/coverage.cobertura.xml。
