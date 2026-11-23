@@ -1,0 +1,42 @@
+name: roleplay-accept
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tests/uiauto/roleplay-run.ps1'
+      - '.github/workflows/roleplay-accept.yml'
+
+jobs:
+  roleplay:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 发布服务与壳层（与出包同口径）
+        shell: pwsh
+        run: |
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -f net10.0-windows -r win-x64 --self-contained false -o publish --nologo
+          dotnet publish src/TaoSearch.App/TaoSearch.App.csproj -c Release -r win-x64 --self-contained false -o publish --nologo
+          Get-ChildItem publish/TaoSearch.*.exe | ForEach-Object { Write-Host $_.Name }
+
+      - name: 扮演验收（三画像 + 零用例盲测 + 真实脏数据环境 + 全程录屏）
+        shell: powershell
+        run: ./tests/uiauto/roleplay-run.ps1 -PublishDir "$PWD/publish" -EvidenceDir "$PWD/rp-evidence"
+
+      - name: 上传扮演验收证据（截图+录屏帧+日志+对账表）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roleplay-evidence
+          path: rp-evidence/**
+          if-no-files-found: warn
+          retention-days: 14
