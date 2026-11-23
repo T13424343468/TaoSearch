@@ -26,9 +26,17 @@ function Shot([string]$name) {
 }
 function Get-AppWindow([string]$titlePart) {
     $root = [System.Windows.Automation.AutomationElement]::RootElement
+    # 先按精确名找窗口（对齐 gate2 口径），再退化为包含名；只认 ControlType.Window，防误拿任务栏按钮
+    $exact = New-Object System.Windows.Automation.AndCondition(
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $titlePart)),
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window)))
+    $w = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $exact)
+    if ($w) { return $w }
     $all = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
     foreach ($el in $all) {
-        if ($el.Current.Name -like "*$titlePart*") { return $el }
+        try {
+            if ($el.Current.ControlType.ProgrammaticName -eq 'ControlType.Window' -and $el.Current.Name -like "*$titlePart*") { return $el }
+        } catch { }
     }
     return $null
 }
@@ -37,18 +45,27 @@ function Invoke-ButtonByName([System.Windows.Automation.AutomationElement]$w, [s
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)),
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $label)))
     $btn = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
-    if ($btn) { try { $btn.GetPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); return $true } catch { return $false } }
-    return $false
-}
-# 引导页逐页推进（B-03 修复：按按钮名精确定位，不再取第一个按钮——那是标题栏按钮）
-function Complete-Onboarding([System.Windows.Automation.AutomationElement]$w, [string]$tag) {
-    foreach ($label in @('下一步', '开始建立索引', '完成', '开始使用')) {
-        for ($try = 0; $try -lt 10; $try++) {
-            if (-not (Invoke-ButtonByName $w $label)) { break }
-            Start-Sleep -Seconds 3
-            Shot "$tag-advance-$label"
-        }
+    if (-not $btn) { return $false }
+    try { $btn.GetPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); return $true }
+    catch {
+        try { $btn.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern).DoDefaultAction(); return $true }
+        catch { return $false }
     }
+}
+# 引导页逐页推进（B-03 修复 v2：对齐 gate2 口径——精确窗口名+按钮名+Invoke/LegacyIAccessible 双模式；
+# 索引就绪等待放宽到 6 分钟（镜像 27 万文件口径，引导文案「视文件数量需几分钟」））
+function Complete-Onboarding([System.Windows.Automation.AutomationElement]$w, [string]$tag) {
+    if (-not (Invoke-ButtonByName $w '下一步')) { Log "onboarding: 下一步未点通"; return }
+    Start-Sleep -Seconds 2; Shot "$tag-step2"
+    if (-not (Invoke-ButtonByName $w '开始建立索引')) { Log "onboarding: 开始建立索引未点通"; return }
+    Start-Sleep -Seconds 2; Shot "$tag-step3"
+    $done = $false
+    foreach ($i in 1..180) {  # 6 分钟：真实数据规模下索引就绪
+        Start-Sleep -Seconds 2
+        if (Invoke-ButtonByName $w '完成，进入 TaoSearch') { $done = $true; break }
+    }
+    Shot "$tag-done-$done"
+    if ($done) { Start-Sleep -Seconds 3; Shot "$tag-main" } else { Log "onboarding: 6 分钟内未就绪（镜像规模口径，记录实际耗时）" }
 }
 function Send-Text([string]$text) {
     [System.Windows.Forms.SendKeys]::SendWait($text)
