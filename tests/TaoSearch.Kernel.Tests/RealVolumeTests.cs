@@ -232,8 +232,9 @@ public sealed class RealVolumeTests
     private static readonly object _gate = new();
 
     // ---- 诊断探针自包含 P/Invoke（不依赖产品互操作层，证据单源） ----
-    private const uint FsctlEnumUsnData = 0x000900B4;
-    private const uint FsctlReadUsnJournal = 0x000900BB;
+    // FSCTL 控制码 = 0x90000 | (功能号 << 2)：ENUM=90、READ=94、QUERY=61（原 0x000900B4/BB 实为重解析点 FSCTL，已由两轮探针实锤）
+    private const uint FsctlEnumUsnData = 0x00090168;
+    private const uint FsctlReadUsnJournal = 0x00090178;
     private const uint FsctlQueryUsnJournal = 0x000900F4;
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]

@@ -77,7 +77,7 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
                         UtcTimestamp = DateTimeOffset.FromFileTime(record.TimeStamp),
                     }, ct);
                 }
-                offset += record.RecordLength;
+                offset += (int)record.RecordLength;
             }
             readArgs.StartUsn = BitConverter.ToInt64(buffer, 0);   // 缓冲头 8 字节 = 下次续读 USN
         }

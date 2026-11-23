@@ -51,13 +51,16 @@ internal static class MftInterop
         out uint lpBytesReturned,
         nint lpOverlapped);
 
-    // FSCTL_ENUM_USN_DATA：MFT 全量枚举（首建路径）
-    internal const uint FsctlEnumUsnData = 0x000900b4;
-    // FSCTL_READ_USN_JOURNAL：增量读取（监听路径）
-    internal const uint FsctlReadUsnJournal = 0x000900bb;
-    // FSCTL_CREATE_USN_JOURNAL
-    internal const uint FsctlCreateUsnJournal = 0x000900e7;
-    // FSCTL_QUERY_USN_JOURNAL
+    // FSCTL 控制码 = CTL_CODE(FILE_DEVICE_FILE_SYSTEM=9, 功能号, METHOD_BUFFERED, FILE_ANY_ACCESS) = 0x90000 | (功能号 << 2)。
+    // 原常量 0x000900b4/0x000900bb/0x000900e7 实为 FSCTL_DELETE_REPARSE_POINT / SET_REPARSE_POINT(METHOD_NEITHER) / CREATE_USN_JOURNAL(METHOD_NEITHER)——
+    // 功能号与传送方法全错，QUERY(0x000900f4) 碰巧正确故一直正常（2026-11-23 云端探针两轮实测：ENUM 恒 err=1、READ 恒 err=1784/5，与重解析点语义完全吻合）。
+    // FSCTL_ENUM_USN_DATA：MFT 全量枚举（首建路径，功能号 90）
+    internal const uint FsctlEnumUsnData = 0x00090168;
+    // FSCTL_READ_USN_JOURNAL：增量读取（监听路径，功能号 94）
+    internal const uint FsctlReadUsnJournal = 0x00090178;
+    // FSCTL_CREATE_USN_JOURNAL（功能号 57，METHOD_BUFFERED）
+    internal const uint FsctlCreateUsnJournal = 0x000900e4;
+    // FSCTL_QUERY_USN_JOURNAL（功能号 61，METHOD_BUFFERED）
     internal const uint FsctlQueryUsnJournal = 0x000900f4;
 
     internal const uint GenericRead = 0x80000000;
@@ -78,11 +81,12 @@ internal static class MftInterop
         public ulong HighUsn;     // ulong.MaxValue = 全量枚举上界
     }
 
-    /// <summary>USN 记录头（V2，实际记录为变长，FileName 偏移按结构体计算）。</summary>
+    /// <summary>USN 记录头（V2，实际记录为变长，FileName 偏移按结构体计算）。
+    /// RecordLength 为 DWORD（4 字节，原误写 ushort 靠记录长度小于 64K 的巧合读对低 16 位）。</summary>
     [StructLayout(LayoutKind.Sequential)]
     internal struct UsnRecordV2
     {
-        public ushort RecordLength;
+        public uint RecordLength;
         public ushort MajorMinorVersion;
         public ulong FileReferenceNumber;
         public ulong ParentFileReferenceNumber;

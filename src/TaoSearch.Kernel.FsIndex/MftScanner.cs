@@ -113,9 +113,9 @@ public sealed class MftScanner
 
             long nextRef = BitConverter.ToInt64(buffer, 0);
             int offset = sizeof(long);
-            while (offset + sizeof(ushort) <= returned)
+            while (offset + sizeof(uint) <= returned)
             {
-                ushort recordLength = BitConverter.ToUInt16(buffer, offset);
+                uint recordLength = BitConverter.ToUInt32(buffer, offset);
                 if (recordLength == 0 || offset + recordLength > returned) break;
 
                 var record = MemoryMarshal.Read<MftInterop.UsnRecordV2>(buffer.AsSpan(offset));
@@ -125,7 +125,7 @@ public sealed class MftScanner
                     sink((long)record.FileReferenceNumber, (long)record.ParentFileReferenceNumber, name);
                 }
                 recordCount++;
-                offset += recordLength;
+                offset += (int)recordLength;
             }
 
             // 续扫：下一批从 nextRef 开始；原地不动则终止防死循环
