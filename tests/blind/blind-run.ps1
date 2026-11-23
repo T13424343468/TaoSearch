@@ -121,14 +121,26 @@ function Send-Text([string]$text) {
 function Focus-SearchBox([System.Windows.Automation.AutomationElement]$w) {
     # B-06 修复（run 45238141117）：UIA SetFocus 聚焦的是窗口而非输入框，SendKeys 文本未落搜索框；
     # 先真实鼠标点击搜索框（Edit 控件）再 SendKeys，带结果搜索证据才能落地
+    # 七轮回归（run 45245082853）：GetClickablePoint 报 no clickable point——改用 BoundingRectangle 中心点击，
+    # 并按窗口矩形上部兜底（搜索框位于窗口顶部区域）
     if (-not $w) { Log "searchbox: 窗口为空，跳过聚焦"; return $false }
-    $edit = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+    $edits = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants,
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)))
-    if (-not $edit) { Log "searchbox: Edit 控件未找到"; return $false }
+    foreach ($e in $edits) {
+        try {
+            $r = $e.Current.BoundingRectangle
+            if ($r.Width -gt 20 -and $r.Height -gt 10) {
+                [NativeMouse]::Click([int]($r.X + $r.Width/2), [int]($r.Y + $r.Height/2))
+                Start-Sleep -Milliseconds 300
+                return $true
+            }
+        } catch { }
+    }
     try {
-        $pt = $edit.GetClickablePoint()
-        [NativeMouse]::Click([int]$pt.X, [int]$pt.Y)
+        $wr = $w.Current.BoundingRectangle
+        [NativeMouse]::Click([int]($wr.X + $wr.Width/2), [int]($wr.Y + $wr.Height*0.14))
         Start-Sleep -Milliseconds 300
+        Log "searchbox: Edit 无有效矩形，已按窗口矩形上部兜底点击"
         return $true
     } catch { Log "searchbox: 点击失败 $_"; return $false }
 }
