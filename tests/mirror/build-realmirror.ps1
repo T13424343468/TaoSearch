@@ -1,4 +1,4 @@
-# TaoSearch 真实环境镜像生成器（v3.22 十一.6 真实环境镜像令，2026-11-23 老板令落制）
+﻿# TaoSearch 真实环境镜像生成器（v3.22 十一.6 真实环境镜像令，2026-11-23 老板令落制）
 # 用途：在云真机/测试机一次造好「几十万级真实文件 + 真实脏数据」标准环境，存为模板全线复用；
 #       作为 11.2⑤「真实数据规模」的固定落地方式。禁用干净实验室环境充当真实环境。
 # 脏数据项按本地搜索工具实际场景取 applicable：超长路径、奇怪字符、损坏文件、只读权限、
@@ -25,9 +25,13 @@ $stats = [ordered]@{ normal = 0; longpath = 0; weird = 0; corrupt = 0; zero = 0;
 $exts = @('.txt', '.md', '.docx', '.pdf', '.jpg', '.png', '.mp3', '.mp4', '.cs', '.json', '.log', '.xlsx', '.pptx', '.html')
 $words = @('报告', '总结', '会议', '纪要', '合同', '发票', '照片', '设计', '备份', '草稿', 'report', 'notes', 'draft', 'final', 'v1', 'v2', 'archive', 'temp')
 
+$dirCache = @{}
 function New-File([string]$path, [int]$sizeBytes, [switch]$Corrupt, [switch]$Zero) {
     $dir = Split-Path $path -Parent
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    if (-not $dirCache.ContainsKey($dir)) {
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $dirCache[$dir] = $true
+    }
     if ($Zero) { New-Item -ItemType File -Path $path -Force | Out-Null; return }
     $bytes = New-Object byte[] $sizeBytes
     if (-not $Corrupt) {
@@ -44,7 +48,7 @@ function New-File([string]$path, [int]$sizeBytes, [switch]$Corrupt, [switch]$Zer
 # ① 常规真实规模：嵌套 3~6 层、真实扩展名与命名习惯
 $normalCount = [int]($FileCount * 0.90)
 $rand = New-Object System.Random(20261123)
-Parallel-less-loop: for ($i = 0; $i -lt $normalCount; $i++) {
+for ($i = 0; $i -lt $normalCount; $i++) {
     $depth = 3 + $rand.Next(4)
     $segs = @()
     for ($d = 0; $d -lt $depth; $d++) { $segs += "dir{0:d3}" -f $rand.Next(200) }
