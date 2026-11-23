@@ -142,7 +142,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>快速搜索窗与主窗共用同一映射。</summary>
-    internal static HitViewModel ToSharedViewModel(SearchHit hit) => ToViewModel(hit);
+    public static HitViewModel ToSharedViewModel(SearchHit hit) => ToViewModel(hit);
 
     private static HitViewModel ToViewModel(SearchHit hit)
     {
