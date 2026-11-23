@@ -209,8 +209,11 @@ public sealed class RealVolumeTests
                 + (qok ? $" journalId={BitConverter.ToUInt64(qbuf, 0)} firstUsn={BitConverter.ToInt64(qbuf, 8)} nextUsn={BitConverter.ToInt64(qbuf, 16)}" : ""));
 
             // MFT_ENUM_DATA_V0 正确 24 字节布局（StartRef/LowUsn/HighUsn 各 8 字节）：
-            // 全量口径 (0, 0, MAX) 与零口径 (0,0,0) 双组合出证
-            foreach (var (lo, hi) in new[] { (0UL, ulong.MaxValue), (0UL, 0UL) })
+            // (0,MAX) 报 38（超日志上界被拒）、(0,0) 只返回 USN=0 的 $Extend 元文件 6 条（2026-11-23 云端实测）——
+            // 证明 LowUsn/HighUsn 是真实 USN 过滤区间；全量口径 = (0, NextUsn)（MSDN FSCTL_ENUM_USN_DATA）
+            var combos = new List<(ulong, ulong)> { (0UL, ulong.MaxValue), (0UL, 0UL) };
+            if (qok) combos.Add((0UL, (ulong)BitConverter.ToInt64(qbuf, 16)));
+            foreach (var (lo, hi) in combos)
             {
                 var input = new byte[24];
                 BitConverter.GetBytes(0L).CopyTo(input, 0);          // StartFileReferenceNumber

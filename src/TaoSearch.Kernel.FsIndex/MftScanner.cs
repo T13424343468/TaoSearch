@@ -60,17 +60,23 @@ public sealed class MftScanner
         return path;
     }
 
+    /// <summary>卷根判定（如 "C:\"）：MFT 全量枚举与 USN 监听都是整卷语义，仅卷根适用。</summary>
+    public static bool IsVolumeRoot(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string root = Path.GetPathRoot(path) ?? string.Empty;
+        return root.Length >= 2 && root[1] == ':'
+            && string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+    }
+
     public unsafe MftScanOutcome Scan(string volumeRoot, RecordSink sink, CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
 
         // MFT 全量枚举是整卷语义（枚举整个 NTFS 卷的记录），仅适用于卷根（如 "C:\"）；
         // 子目录根交由引擎降级目录递归慢路径（云端 runner 真卷实测：目录句柄上 FSCTL 返回错误 1）。
-        string trimmed = volumeRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        string root = Path.GetPathRoot(volumeRoot) ?? string.Empty;
-        bool isVolumeRoot = root.Length >= 2 && root[1] == ':'
-            && string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
-        if (!isVolumeRoot)
+        if (!IsVolumeRoot(volumeRoot))
             return MftScanOutcome.Fail(Win32ErrorInvalidFunction);
 
         using var volume = MftInterop.OpenPath(
@@ -78,9 +84,15 @@ public sealed class MftScanner
         if (volume.IsInvalid)
             return MftScanOutcome.Fail(openError != 0 ? openError : Win32ErrorAccessDenied);
 
+        // 全量枚举上界 = USN 日志 NextUsn（QUERY 取得）。LowUsn/HighUsn 是真实 USN 过滤区间：
+        // (0,0) 只返回 USN=0 的 $Extend 元文件（云端实测 6 条）、(0,ulong.MaxValue) 超上界报 38——
+        // 均 非 全量口径；HighUsn=NextUsn 才覆盖全部记录（MSDN FSCTL_ENUM_USN_DATA 口径）。
+        var journal = MftInterop.QueryUsnJournal(volume);
+        if (!journal.Ok)
+            return MftScanOutcome.Fail(journal.Error != 0 ? journal.Error : Win32ErrorAccessDenied);
+
         byte[] buffer = new byte[InitialBufferBytes];
-        // 探针实测（2026-11-23 云端 runner）：usn=(0,0) 成功返回记录、(0,MAX) 报 38——全量枚举用 (0,0)（无 USN 过滤）
-        var input = new MftInterop.MftEnumInput { StartFileReference = 0, LowUsn = 0, HighUsn = 0 };
+        var input = new MftInterop.MftEnumInput { StartFileReference = 0, LowUsn = 0, HighUsn = (ulong)journal.NextUsn };
         int inputSize = Marshal.SizeOf<MftInterop.MftEnumInput>();
         var inputBytes = new byte[inputSize];
         long recordCount = 0;

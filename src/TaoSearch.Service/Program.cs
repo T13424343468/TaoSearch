@@ -262,8 +262,11 @@ public static class ServiceHostFactory
             }, CancellationToken.None);
         }
 
-        // 事件泵：Windows 挂 USN 监听（真实源）；非 Windows（沙箱/测试）由注入源驱动
-        if (OperatingSystem.IsWindows())
+        // 事件泵：Windows 且卷根语义才挂 USN 监听（真实源）；非 Windows（沙箱/测试）由注入源驱动。
+        // USN 日志是整卷语义且事件只带引用号不带路径，非卷根（如索引子目录）挂整卷监听会把根外
+        // 文件灌进索引（2026-11-23 云端 runner 实测 FileCount 2→14 实锤）——与 MFT 快路径同口径，
+        // 非卷根不挂监听，走引擎慢路径。
+        if (OperatingSystem.IsWindows() && MftScanner.IsVolumeRoot(volumeRoot))
         {
             var listener = new UsnJournalListener(volumeRoot);
             listener.Start();

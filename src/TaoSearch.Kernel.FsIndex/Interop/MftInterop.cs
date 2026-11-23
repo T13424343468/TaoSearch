@@ -70,6 +70,28 @@ internal static class MftInterop
     internal const uint BackupSemantics = 0x02000000;
 
     /// <summary>
+    /// FSCTL_QUERY_USN_JOURNAL：取日志 ID 与 NextUsn（USN_JOURNAL_DATA = JournalID@0/FirstUsn@8/NextUsn@16）。
+    /// NextUsn 同时是 FSCTL_ENUM_USN_DATA 全量枚举的 HighUsn 上界（2026-11-23 云端 runner 实测：
+    /// HighUsn=ulong.MaxValue 报 38——超日志实际上界被拒；(0,0) 只返回 USN=0 的 $Extend 元文件 6 条，
+    /// 证明 LowUsn/HighUsn 是真实 USN 过滤区间而非「无过滤」哨兵）。
+    /// </summary>
+    internal static (bool Ok, ulong JournalId, long NextUsn, int Error) QueryUsnJournal(SafeFileHandle volume)
+    {
+        var outBuf = new byte[64];
+        bool ok;
+        var hOut = GCHandle.Alloc(outBuf, GCHandleType.Pinned);
+        try
+        {
+            ok = DeviceIoControl(volume, FsctlQueryUsnJournal,
+                0, 0, hOut.AddrOfPinnedObject(), (uint)outBuf.Length, out _, 0);
+        }
+        finally { hOut.Free(); }
+        int err = Marshal.GetLastWin32Error();
+        if (!ok) return (false, 0, 0, err);
+        return (true, BitConverter.ToUInt64(outBuf, 0), BitConverter.ToInt64(outBuf, 16), 0);
+    }
+
+    /// <summary>
     /// MFT 枚举入参（native MFT_ENUM_DATA_V0，24 字节：StartFileReferenceNumber/LowUsn/HighUsn 各 8 字节）。
     /// 原误写 12 字节混合布局（8 字节引用号 + 两个 USHORT「版本号」）——该布局不存在，
     /// 输入尺寸校验不过 FSCTL 恒返回错误 1（2026-11-23 云端 runner 真卷探针实测：12 字节在全部组合、两种句柄上均 err=1）。
