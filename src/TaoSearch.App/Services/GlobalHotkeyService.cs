@@ -127,10 +127,16 @@ public sealed class GlobalHotkeyService : IDisposable
         public string lpszClassName;
     }
 
+    /// <summary>
+    /// WndProc 委托必须终身 rooted：局部变量在 CreateMessageWindow 返回后即可被 GC 回收，
+    /// 消息到达时回调已回收委托会 FailFast（0.1.0.15 扮演班 RP-P3 实锤：Alt+Q 即崩）。
+    /// 静态字段保活至进程结束。
+    /// </summary>
+    private static readonly WndProcDelegate s_wndProc = new(DefWindowProcW);
+
     private static IntPtr CreateMessageWindow()
     {
-        var proc = new WndProcDelegate(DefWindowProcW);
-        var pProc = Marshal.GetFunctionPointerForDelegate(proc);
+        var pProc = Marshal.GetFunctionPointerForDelegate(s_wndProc);
         var cls = new WNDCLASS
         {
             lpfnWndProc = pProc,
@@ -139,8 +145,7 @@ public sealed class GlobalHotkeyService : IDisposable
         };
         if (RegisterClassW(ref cls) == 0 && Marshal.GetLastWin32Error() != 0 && Marshal.GetLastWin32Error() != 1410)
             return IntPtr.Zero; // 1410=CLASS_ALREADY_EXISTS 可复用
-        // HWND_MESSAGE=新 message-only 窗口：parent 传 -3
-        GC.KeepAlive(proc);
+        // HWND_MESSAGE=新 message-only 窗口：parent 传 -3；s_wndProc 为静态字段，终身 rooted 无需 KeepAlive
         return CreateWindowExW(0, "TaoSearchHotkeyWnd", "", 0, 0, 0, 0, 0, new IntPtr(-3), IntPtr.Zero, Marshal.GetHINSTANCE(typeof(GlobalHotkeyService).Module), IntPtr.Zero);
     }
 }
