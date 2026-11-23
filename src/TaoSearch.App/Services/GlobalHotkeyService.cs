@@ -19,6 +19,9 @@ public sealed class GlobalHotkeyService : IDisposable
     private IntPtr _hwnd;
     private bool _registered;
 
+    /// <summary>最近一次 RegisterHotKey 的 Win32 错误码（0.1.0.14 取证用；成功时值无意义）。</summary>
+    public int LastWin32Error { get; private set; }
+
     public GlobalHotkeyService(Microsoft.UI.Dispatching.DispatcherQueue dispatcher, Action callback)
     {
         _dispatcher = dispatcher;
@@ -35,6 +38,7 @@ public sealed class GlobalHotkeyService : IDisposable
                 _hwnd = CreateMessageWindow();
                 if (_hwnd == IntPtr.Zero) { ready.Set(); return; }
                 _registered = RegisterHotKey(_hwnd, HOTKEY_ID, MOD_ALT | MOD_NOREPEAT, 'Q');
+                LastWin32Error = Marshal.GetLastWin32Error();
                 ready.Set();
                 int ret;
                 while ((ret = GetMessage(out var msg, _hwnd, 0, 0)) > 0)

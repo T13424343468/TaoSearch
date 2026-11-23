@@ -52,6 +52,20 @@ public partial class App : Application
         catch { /* 取证失败不二次抛出 */ }
     }
 
+    /// <summary>轻量文件日志（0.1.0.14）：热键注册/提示等关键路径取证，写 %LOCALAPPDATA%\TaoSearch\hotkey.log。</summary>
+    internal static void LogLine(string message)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TaoSearch");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "hotkey.log"),
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}\n");
+        }
+        catch { /* 取证失败不二次抛出 */ }
+    }
+
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         JumpListService.SetProcessAppId();
@@ -133,30 +147,51 @@ public partial class App : Application
 
     private void RegisterHotkey()
     {
-        if (!AppSettings.Instance.QuickHotkeyEnabled) return;
+        if (!AppSettings.Instance.QuickHotkeyEnabled)
+        {
+            LogLine("hotkey register skipped: QuickHotkeyEnabled=false");
+            return;
+        }
         var queue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         _hotkey = new GlobalHotkeyService(queue, ToggleQuickWindow);
         var registered = _hotkey.Start(); // 注册失败显式反馈（0.1.0.9：不再静默）
+        LogLine($"hotkey register result={registered} win32err={_hotkey.LastWin32Error}");
         if (!registered) _ = ShowHotkeyNoticeAsync();
     }
 
-    /// <summary>热键注册失败提示：冲突换键指引，不再静默。</summary>
+    /// <summary>热键注册失败提示：冲突换键指引，不再静默（0.1.0.14：XamlRoot 未就绪改为轮询等待，修复启动竞态下提示被吞）。</summary>
     private async Task ShowHotkeyNoticeAsync()
     {
-        try
+        // 启动时序：RegisterHotkey 紧跟 Activate() 之后，窗口内容可能尚未进可视树（XamlRoot 为 null），
+        // 原实现此时静默 return，失败提示丢失（G2-29 云端实锤）。改为轮询等待承载就绪后再弹。
+        const int maxAttempts = 20; // 20 × 500ms = 最多等 10s
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            var window = (Window?)_mainWindow ?? (Window?)_quickWindow ?? (Window?)_onboardingWindow;
-            if (window?.Content is not FrameworkElement root || root.XamlRoot is null) return;
-            await new ContentDialog
+            try
             {
-                Title = "快捷键未生效",
-                Content = "全局快捷键 Alt+Q 注册失败，可能被其他程序占用。" +
-                          "关闭占用程序后重启 TaoSearch 即可恢复；也可先从任务栏图标打开主窗使用。",
-                CloseButtonText = "知道了",
-                XamlRoot = root.XamlRoot,
-            }.ShowAsync();
+                var window = (Window?)_mainWindow ?? (Window?)_quickWindow ?? (Window?)_onboardingWindow;
+                if (window?.Content is FrameworkElement root && root.XamlRoot is not null)
+                {
+                    LogLine($"hotkey notice show attempt={attempt}");
+                    await new ContentDialog
+                    {
+                        Title = "快捷键未生效",
+                        Content = "全局快捷键 Alt+Q 注册失败，可能被其他程序占用。" +
+                                  "关闭占用程序后重启 TaoSearch 即可恢复；也可先从任务栏图标打开主窗使用。",
+                        CloseButtonText = "知道了",
+                        XamlRoot = root.XamlRoot,
+                    }.ShowAsync();
+                    LogLine("hotkey notice dismissed");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogLine($"hotkey notice error: {ex.Message}"); // 无可承载窗口时降级：托盘菜单仍可用
+            }
+            await Task.Delay(500);
         }
-        catch { /* 无可承载窗口时静默：托盘菜单仍可用 */ }
+        LogLine("hotkey notice gave up: no XamlRoot within 10s");
     }
 
     /// <summary>设置页开关热键后重注册（0.1.0.9）。</summary>

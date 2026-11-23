@@ -959,6 +959,15 @@ if (Test-Path $crashLog) {
 } else {
     Log '  crash| 无 crash.log（壳层未产生托管未处理异常记录）'
 }
+# 热键取证（0.1.0.14）：G2-29 冲突实弹的注册结果与提示路径落 hotkey.log
+$hotkeyLog = "$settingsDir\hotkey.log"
+if (Test-Path $hotkeyLog) {
+    Log '== 壳层 hotkey.log =='
+    Get-Content $hotkeyLog | ForEach-Object { Log "  hotkey| $_" }
+    Copy-Item $hotkeyLog "$EvidenceDir\hotkey.log" -Force
+} else {
+    Log '  hotkey| 无 hotkey.log（壳层未写热键取证）'
+}
 try { $app.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 2; if (-not $app.HasExited) { $app.Kill() } } catch { }
 try { if (-not $svc.HasExited) { $svc.Kill() } } catch { }
 
