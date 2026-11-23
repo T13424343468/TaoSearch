@@ -70,13 +70,11 @@ jobs:
           [System.IO.File]::WriteAllBytes($snap, $all[0..([int]($all.Length/2)-1)])
           Test-Phase "快照截断一半" 253
 
-          # 阶段3：journal 垃圾字节
+          # 阶段3：journal 垃圾字节（无条件注入——服务检查点后不留 journal 文件，历史 run 因文件不存在空跑过该阶段）
           $jrnl = "$PWD/qadata/fs.journal"
-          if (Test-Path $jrnl) {
-            $jb = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(4096)
-            [System.IO.File]::WriteAllBytes($jrnl, $jb)
-            Test-Phase "journal垃圾" 253
-          } else { Write-Host "::warning::fs.journal 不存在，跳过 journal 注入" }
+          $jb = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(4096)
+          [System.IO.File]::WriteAllBytes($jrnl, $jb)
+          Test-Phase "journal垃圾" 253
 
           # 阶段4：快照只读（写入路径受阻）
           if (Test-Path $snap) { (Get-Item $snap).IsReadOnly = $true }
