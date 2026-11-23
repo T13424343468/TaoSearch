@@ -1,0 +1,48 @@
+name: gate9-perf
+
+# 关9「大文件量性能模拟」（2026-11-23 老板问「不能模拟？」）：
+# 云端造 10 万文件真实语料，实测枚举回退路径的首扫耗时与文件名查询延迟。
+# 云端虚拟盘无 MFT（两轮实测 Win32Error=1），MFT 直读性能仍须真机，本关量的是无 MFT 时的真实下限。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    paths:
+      - 'tests/Gate3Harness/**'
+      - '.github/workflows/gate9-perf.yml'
+
+jobs:
+  gate9:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 发布服务与挂载程序
+        shell: pwsh
+        run: |
+          dotnet publish src/TaoSearch.Service/TaoSearch.Service.csproj -c Release -f net10.0-windows -r win-x64 --self-contained false -o publish --nologo
+          dotnet build tests/Gate3Harness/Gate3Harness.csproj -c Release --nologo
+
+      - name: 大文件量性能模拟（10 万文件：生成→起服务→首扫计时→查询延迟抽样）
+        shell: pwsh
+        run: |
+          dotnet tests/Gate3Harness/bin/Release/net10.0/Gate3Harness.dll perf --publish "$PWD/publish" --root "$PWD/perf-corpus" --files 100000 --report "$PWD/gate9-results.txt" --timeout-sec 600
+          $rc = $LASTEXITCODE
+          Write-Host "--- gate9-results.txt ---"
+          Get-Content "$PWD/gate9-results.txt" -ErrorAction SilentlyContinue
+          exit $rc
+
+      - name: 上传证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate9-evidence
+          path: gate9-results.txt

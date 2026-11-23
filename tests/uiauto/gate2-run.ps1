@@ -1,5 +1,6 @@
 ﻿# 关2「能不能用」界面自动化清单（主班补位版 v2，2026-11-22 全面覆盖令）
 # 口径：真 Windows 桌面会话内启动服务+壳层，UIA 逐项点通，每步截图留证。
+# v5（2026-11-23 模拟令「不能模拟？」）：G2-29 热键冲突实弹（占住 Alt+Q 验失败弹窗）、G2-30 主题深挖（设置回读+窗口亮度客观判据，实锤 #13）、G2-31 DPI 150% 模拟（INFO）。
 # v4d（2026-11-22）：G2-27 段先关遮挡主窗的快速窗再滚轮；G2-26c 改轻量轮询，不饿死 UI 线程。
 # v4（2026-11-22 老板令「必须全面覆盖无死角」）：对账补齐 G2-22~G2-27（内容页签全文搜索/快速窗输入即搜/设置页按钮群/Alt+Q 真实按键/单实例转发/托盘退出）；v3 托盘命令链路 G2-20（关窗进托盘→右键回调→打开主窗复现）、
 #   托盘「快速搜索」拉起快速窗并截图（G2-21）；v2：引导全流程（G2-11~15）、热键开关切换（G2-16）、托盘 UIA 探针（G2-17）、自启开关试切（G2-18）、引导跳过路径（G2-19）。
@@ -37,6 +38,27 @@ function Screenshot([string]$name) {
         $g.Dispose(); $bmp.Dispose()
         Log "  截图: $name.png"
     } catch { Log "  截图失败 $name : $_" }
+}
+
+function Get-CropLuminance([string]$png, [double]$rx, [double]$ry, [double]$rw, [double]$rh) {
+    # 主题深挖（模拟令）：窗口区域平均亮度（0-255），用于深浅色切换的客观判据
+    try {
+        $bmp = New-Object System.Drawing.Bitmap($png)
+        $x = [Math]::Max(0, [int]$rx); $y = [Math]::Max(0, [int]$ry)
+        $w = [Math]::Min($bmp.Width - $x, [int]$rw); $h = [Math]::Min($bmp.Height - $y, [int]$rh)
+        if ($w -le 0 -or $h -le 0) { $bmp.Dispose(); return -1 }
+        $sum = 0L; $n = 0
+        for ($yy = $y; $yy -lt ($y + $h); $yy += 6) {
+            for ($xx = $x; $xx -lt ($x + $w); $xx += 6) {
+                $c = $bmp.GetPixel($xx, $yy)
+                $sum += [int](0.299 * $c.R + 0.587 * $c.G + 0.114 * $c.B)
+                $n++
+            }
+        }
+        $bmp.Dispose()
+        if ($n -eq 0) { return -1 }
+        return [math]::Round($sum / $n, 1)
+    } catch { return -1 }
 }
 
 function Click-UiaElement([System.Windows.Automation.AutomationElement]$el) {
@@ -598,10 +620,22 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
             if ($mobai) {
                 # 主题卡在首屏外（G2-27 截图实证）：先滚动入视再选
                 try { ($mobai.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)).ScrollIntoView(); Start-Sleep -Milliseconds 800 } catch { }
+                # 主题深挖（模拟令）：切换前先留浅色基准截图，切后算窗口亮度对比 + 设置回读，客观实锤 #13
+                Screenshot 'G2-27-theme-light'
+                $rcMain = $win.Current.BoundingRectangle
                 try { ($mobai.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)).Select() }
                 catch { Close-UiaDialog $win; if (-not (Click-UiaElement $mobai)) { throw "墨白单选不可选: $_" } }
                 Start-Sleep -Seconds 2
                 Screenshot 'G2-27-theme-dark'
+                try {
+                    $themeSaved = (Get-Content "$settingsDir\settings.json" -Raw | ConvertFrom-Json).Theme
+                } catch { $themeSaved = '<读取失败>' }
+                Log "  设置回读: Theme=$themeSaved"
+                $lumLight = Get-CropLuminance "$EvidenceDir\G2-27-theme-light.png" $rcMain.X $rcMain.Y $rcMain.Width $rcMain.Height
+                $lumDark = Get-CropLuminance "$EvidenceDir\G2-27-theme-dark.png" $rcMain.X $rcMain.Y $rcMain.Width $rcMain.Height
+                Log "  窗口亮度: 浅色=$lumLight 深色=$lumDark"
+                Check 'G2-30a' "主题选择已持久化（settings 回读=$themeSaved）" ($themeSaved -eq 'mobai') $true
+                Check 'G2-30b' "主题切换视觉生效（亮度 $lumLight → $lumDark 应显著下降）" (($lumDark -ge 0) -and ($lumLight -ge 0) -and ($lumDark -lt ($lumLight * 0.9))) $true
                 Scroll-WheelOver $win 3 | Out-Null
                 Start-Sleep -Milliseconds 400
                 $rbCond2 = New-Object System.Windows.Automation.AndCondition(
@@ -825,6 +859,72 @@ public static System.Collections.Generic.List<string> ListWindows(uint pid) {
 } catch { Check 'G2-24' "托盘退出异常: $_" $false $true }
 Screenshot 'G2-19-skip-main'
 try { $app2.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 2; if (-not $app2.HasExited) { $app2.Kill() } } catch { }
+
+# ---- 热键冲突实弹（G2-29，模拟令：先占住 Alt+Q 再启动壳层，验失败弹窗）----
+Log '== 热键冲突实弹 =='
+try {
+    Get-Process TaoSearch.App -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    # 占位进程：独立 pwsh 注册 Alt+Q（Mod=Alt 0x1, vk='Q'）后驻留 180s
+    $holderScript = Join-Path $env:TEMP 'hotkey-holder.ps1'
+    Set-Content -Path $holderScript -Encoding UTF8 -Value @'
+Add-Type -Namespace Hold -Name Native -MemberDefinition '[DllImport("user32.dll")] public static extern bool RegisterHotKey(System.IntPtr hWnd, int id, uint mods, uint vk);'
+[Hold.Native]::RegisterHotKey([System.IntPtr]::Zero, 1, 0x1, [uint32][char]'Q') | Out-Null
+Start-Sleep -Seconds 180
+'@
+    $holder = Start-Process pwsh -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$holderScript -PassThru -WindowStyle Hidden
+    Start-Sleep -Seconds 3
+    # 全新启动（settings 已有 OnboardingCompleted，直接进主窗；注册失败应弹「快捷键未生效」）
+    $appC = Start-Process -FilePath "$PublishDir\TaoSearch.App.exe" -WorkingDirectory $PublishDir -PassThru
+    $conflict = $null
+    foreach ($i in 1..15) {
+        Start-Sleep -Seconds 1
+        try {
+            $winC = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
+                [System.Windows.Automation.TreeScope]::Children,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $appC.Id)))
+            if ($winC) {
+                $conflict = $winC.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                    (New-Object System.Windows.Automation.PropertyCondition(
+                        [System.Windows.Automation.AutomationElement]::NameProperty, '快捷键未生效')))
+                if ($conflict) { break }
+            }
+        } catch { }
+    }
+    Check 'G2-29' '热键被占用时启动弹「快捷键未生效」提示' ($null -ne $conflict) $true
+    Screenshot 'G2-29-hotkey-conflict'
+    try { if ($holder -and -not $holder.HasExited) { $holder.Kill() } } catch { }
+    try { $appC.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 2; if (-not $appC.HasExited) { $appC.Kill() } } catch { }
+} catch { Check 'G2-29' "热键冲突实弹异常: $_" $false $true }
+
+# ---- DPI 缩放模拟（G2-31，模拟令：改系统 DPI 后重启壳层，验窗口渲染；环境相关记 INFO）----
+Log '== DPI 缩放模拟 =='
+$dpiOk = $false
+try {
+    $dpiKey = 'HKCU:\Control Panel\Desktop'
+    $oldDpi = (Get-ItemProperty -Path $dpiKey -Name LogPixels -ErrorAction SilentlyContinue).LogPixels
+    Set-ItemProperty -Path $dpiKey -Name LogPixels -Value 144 -Type DWord   # 150%
+    Start-Sleep -Seconds 1
+    $appD = Start-Process -FilePath "$PublishDir\TaoSearch.App.exe" -WorkingDirectory $PublishDir -PassThru
+    Start-Sleep -Seconds 8
+    try {
+        $winD = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
+            [System.Windows.Automation.TreeScope]::Children,
+            (New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $appD.Id)))
+        if ($winD) {
+            $rcD = $winD.Current.BoundingRectangle
+            Log "  150% 窗口尺寸: $([int]$rcD.Width)×$([int]$rcD.Height)"
+            $dpiOk = ($rcD.Width -gt 200 -and $rcD.Height -gt 200)
+        }
+    } catch { Log "  窗口探测异常: $_" }
+    Screenshot 'G2-31-dpi-150'
+    if ($oldDpi) { Set-ItemProperty -Path $dpiKey -Name LogPixels -Value $oldDpi -Type DWord }
+    else { Remove-ItemProperty -Path $dpiKey -Name LogPixels -ErrorAction SilentlyContinue }
+    try { $appD.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 2; if (-not $appD.HasExited) { $appD.Kill() } } catch { }
+} catch { Log "  DPI 模拟异常: $_" }
+Check 'G2-31' 'DPI 150% 下窗口正常渲染（环境相关，记 INFO）' $dpiOk $false
 
 # ---- 崩溃取证（0.1.0.9）：壳层若崩溃，从事件日志与 crash.log 取堆栈 ----
 Log '== 崩溃取证 =='

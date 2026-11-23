@@ -20,6 +20,30 @@ NamedPipeClientStream pipe = null!;
 
 if (args[0] == "generate" && args.Length >= 2) { GenerateCorpus(args[1]); return 0; }
 
+if (args[0] == "perf")
+{
+    // perf --publish <dir> --root <corpus> --files <n> --report <txt> [--timeout-sec 600]
+    // 模拟令（2026-11-23 老板问「不能模拟？」）：大文件量首扫性能云端实测——
+    // 生成 N 文件语料 → 起服务（计时起点=进程启动）→ 等文件名索引就绪记耗时 → 文件名查询延迟抽样。
+    // 云端虚拟盘无 MFT（两轮实测 Win32Error=1），本命令量的是枚举回退路径，MFT 直读性能仍须真机。
+    string? publishDir = null, root = null, reportPath = null;
+    int files = 100000, timeoutSec = 600;
+    for (int i = 1; i + 1 < args.Length; i += 2)
+    {
+        switch (args[i])
+        {
+            case "--publish": publishDir = args[i + 1]; break;
+            case "--root": root = args[i + 1]; break;
+            case "--files" when int.TryParse(args[i + 1], out var f): files = f; break;
+            case "--report": reportPath = args[i + 1]; break;
+            case "--timeout-sec" when int.TryParse(args[i + 1], out var t): timeoutSec = t; break;
+        }
+    }
+    if (publishDir is null || root is null || reportPath is null)
+    { Console.Error.WriteLine("perf 需要 --publish --root --report"); return 2; }
+    return await PerfAsync(publishDir, root, files, reportPath, timeoutSec);
+}
+
 if (args[0] == "run")
 {
     string? queriesPath = null, reportPath = null; int timeoutSec = 180;
@@ -194,6 +218,111 @@ async Task<int> RunAsync(string queriesPath, string reportPath, int timeoutSec)
     File.WriteAllLines(reportPath, lines);
     Console.WriteLine($"== 关3 结果: 严格失败 {strictFails} 项，报告 {reportPath} ==");
     return strictFails == 0 ? 0 : 1;
+}
+
+// ---- 大文件量性能模拟（模拟令：真实文件量首扫与查询延迟，云端枚举路径实测） ----
+async Task<int> PerfAsync(string publishDir, string root, int files, string reportPath, int timeoutSec)
+{
+    var lines = new List<string>();
+    int strictFails = 0;
+    void Check(string id, string name, bool ok, bool strict = true)
+    {
+        string verdict = ok ? "PASS" : strict ? "FAIL" : "INFO";
+        if (!ok && strict) strictFails++;
+        lines.Add($"[{verdict}] {id} {name}");
+        Console.WriteLine($"[{verdict}] {id} {name}");
+    }
+
+    // 1. 大语料生成（bucket 分桶避免单目录 10 万项拖垮枚举与文件系统）
+    GenerateLargeCorpus(root, files);
+    lines.Add($"[INFO] 语料: {files} 文件 @ {root}");
+
+    // 2. 起服务，计时起点 = 进程启动前一刻
+    var svc = Process.Start(new ProcessStartInfo(
+        Path.Combine(publishDir, "TaoSearch.Service.exe"), $"\"{root}\"")
+    {
+        WorkingDirectory = publishDir,
+        UseShellExecute = false,
+    }) ?? throw new InvalidOperationException("服务进程启动失败");
+    var sw = Stopwatch.StartNew();
+
+    // 3. 连管道（90s 窗口重试，同 RunAsync 口径）
+    pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+    var connectSw = Stopwatch.StartNew();
+    while (true)
+    {
+        try { pipe.Connect(2000); break; }
+        catch (TimeoutException) when (connectSw.Elapsed.TotalSeconds < 90) { await Task.Delay(500); }
+    }
+    lines.Add($"[INFO] 管道已连接（{connectSw.Elapsed.TotalSeconds:F1}s）");
+
+    // 4. 等文件名索引就绪（内容索引后台继续，不阻塞本口径）
+    IndexStatus? ready = null;
+    while (sw.Elapsed.TotalSeconds < timeoutSec)
+    {
+        IndexStatus st;
+        try { st = await CallAsync<IndexStatus>(2, null, CancellationToken.None); }
+        catch (Exception ex)
+        {
+            lines.Add($"[FAIL] 状态轮询异常: {ex.Message}");
+            break;
+        }
+        if (st.FilenameIndexReady && st.FileCount >= files) { ready = st; break; }
+        await Task.Delay(1000);
+    }
+    sw.Stop();
+    if (ready is null)
+    {
+        Check("G9-00", $"大语料首扫就绪（{timeoutSec}s 内）", false);
+        try { svc.Kill(); } catch { }
+        File.WriteAllLines(reportPath, lines);
+        return 1;
+    }
+    lines.Add($"[INFO] 首扫: {ready.FileCount} 文件 耗时={sw.Elapsed.TotalSeconds:F1}s（云端虚拟盘无 MFT，枚举回退路径）");
+    Check("G9-00", $"大语料首扫就绪：{ready.FileCount}/{files} 文件 {sw.Elapsed.TotalSeconds:F1}s", ready.FileCount >= files);
+
+    // 5. 文件名查询延迟抽样（10 探针，FR-01 毫秒级判据）
+    var lat = new List<double>();
+    string[] probes = ["content-00", "content-09", "decoy-0", "perf-00", "perf-09", "readme", "perf-05", "content-05", "decoy-09", "perf-03"];
+    foreach (var text in probes)
+    {
+        var spec = new QuerySpec { Text = text, Scope = QueryScope.Filename, BatchSize = 200 };
+        var qsw = Stopwatch.StartNew();
+        ResultBatch batch;
+        try { batch = await CallAsync<ResultBatch>(1, spec, CancellationToken.None); }
+        catch (Exception ex)
+        {
+            lines.Add($"[FAIL] 查询 {text} 管道异常: {ex.Message}");
+            Check($"G9-q{text}", $"{text} → 管道异常", false);
+            continue;
+        }
+        qsw.Stop();
+        lat.Add(qsw.Elapsed.TotalMilliseconds);
+        lines.Add($"[INFO] 查询 {text}: 命中 {batch.Hits.Count()} 条 {qsw.Elapsed.TotalMilliseconds:F0}ms");
+    }
+    lat.Sort();
+    double P(double p) => lat.Count == 0 ? 0 : lat[Math.Min(lat.Count - 1, (int)Math.Ceiling(p * lat.Count) - 1)];
+    lines.Add($"[INFO] 文件名查询延迟 ms: P50={P(0.5):F0} P95={P(0.95):F0} N={lat.Count}");
+    Check("G9-95", $"文件名查询 P95={P(0.95):F0}ms ≤ 200ms（FR-01 判据）", P(0.95) <= 200);
+
+    try { svc.Kill(); } catch { }
+    File.WriteAllLines(reportPath, lines);
+    Console.WriteLine($"== 关9 结果: 严格失败 {strictFails} 项，报告 {reportPath} ==");
+    return strictFails == 0 ? 0 : 1;
+}
+
+static void GenerateLargeCorpus(string root, int files)
+{
+    Directory.CreateDirectory(root);
+    int dirs = Math.Min(256, Math.Max(1, files / 400));
+    for (int d = 0; d < dirs; d++) Directory.CreateDirectory(Path.Combine(root, $"bucket-{d:D3}"));
+    var sw = Stopwatch.StartNew();
+    for (int i = 0; i < files; i++)
+    {
+        string dir = Path.Combine(root, $"bucket-{i % dirs:D3}");
+        File.WriteAllText(Path.Combine(dir, $"perf-{i:D7}.txt"), $"性能语料 {i}\n内容行，用于文件量模拟。\n");
+    }
+    Console.WriteLine($"[INFO] 大语料生成 {files} 文件 耗时 {sw.Elapsed.TotalSeconds:F1}s");
 }
 
 // ---- 管道调用（帧头 12B，与 App PipeClient 同构；单次调用 30s 超时防挂死盲等） ----
