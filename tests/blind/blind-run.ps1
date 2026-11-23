@@ -118,6 +118,20 @@ function Complete-Onboarding([string]$tag) {
 function Send-Text([string]$text) {
     [System.Windows.Forms.SendKeys]::SendWait($text)
 }
+function Focus-SearchBox([System.Windows.Automation.AutomationElement]$w) {
+    # B-06 修复（run 45238141117）：UIA SetFocus 聚焦的是窗口而非输入框，SendKeys 文本未落搜索框；
+    # 先真实鼠标点击搜索框（Edit 控件）再 SendKeys，带结果搜索证据才能落地
+    if (-not $w) { Log "searchbox: 窗口为空，跳过聚焦"; return $false }
+    $edit = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)))
+    if (-not $edit) { Log "searchbox: Edit 控件未找到"; return $false }
+    try {
+        $pt = $edit.GetClickablePoint()
+        [NativeMouse]::Click([int]$pt.X, [int]$pt.Y)
+        Start-Sleep -Milliseconds 300
+        return $true
+    } catch { Log "searchbox: 点击失败 $_"; return $false }
+}
 $findings = New-Object System.Collections.Generic.List[string]
 
 # ── 环境准备：真实数据规模场景（11.2⑤）优先挂镜像，无镜像退回 C 盘真实盘并在清单注明 ──
@@ -167,6 +181,7 @@ Shot 'BL-xiaobai-03-after-onboarding'
 $w = Get-AppWindow 'TaoSearch'
 if ($w) {
     $w.SetFocus()
+    Focus-SearchBox $w | Out-Null
     Send-Text '报告'
     Start-Sleep -Seconds 3
     Shot 'BL-xiaobai-04-naive-search'
@@ -175,7 +190,7 @@ if ($w) {
 try {
     $w2 = Get-AppWindow 'TaoSearch'
     $settings = $w2.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '设置')))
-    if ($settings) { $settings.GetPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Seconds 3; Shot 'BL-xiaobai-05-settings' }
+    if ($settings) { try { $settings.GetPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { try { $settings.SetFocus() } catch {} }; Start-Sleep -Seconds 3; Shot 'BL-xiaobai-05-settings' }
 } catch { Log "xiaobai settings: $_" }
 
 # ── 画像二：熟练（场景②③⑤：高频反复 + 低频致命 + 镜像规模）──
@@ -184,6 +199,7 @@ Log "persona=shulian start"
 $w = Get-AppWindow 'TaoSearch'
 if ($w) {
     $w.SetFocus()
+    Focus-SearchBox $w | Out-Null
     foreach ($q in @('batch', '报告', 'batch', 'dir', 'batch-1', '搜索')) {
         Send-Text('^a'); Send-Text($q); Start-Sleep -Milliseconds 900
     }
@@ -210,6 +226,7 @@ Log "persona=pohuai start"
 $w = Get-AppWindow 'TaoSearch'
 if ($w) {
     $w.SetFocus()
+    Focus-SearchBox $w | Out-Null
     $fuzz = @('a' * 500, '*', '?', 'file: && ||', '\..\..\..', "$([char]::ConvertFromUtf32(0x1F600)) emoji", "regex ( [ { * +", "' OR 1=1 --", '%SYSTEMROOT%', 'con.txt')
     foreach ($f in $fuzz) { Send-Text('^a'); Send-Text($f); Start-Sleep -Milliseconds 600 }
     Shot 'BL-pohuai-01-fuzz-input'
