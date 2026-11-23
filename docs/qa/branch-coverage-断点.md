@@ -16,7 +16,12 @@
    - MftScanner 0/64（DeviceIoControl FSCTL_ENUM_USN_DATA 全路径）——需云端 Windows 管理员卷跑。
    - UsnJournalListener 0/76（同因，监听循环/订阅全在真 USN 句柄上）。
 2. **内部 unsafe/哈希桶分支（NameIndex 89.3%、NameIndexSnapshot 75%、InvertedIndexSnapshot 75.7%）**：需构造哈希环/快照损坏字节流，属下一批用例（可做，未及）。
-3. **Service.Tests 未动**：仍 41.0%。Program 控制台模式、ServiceHostFactory 临时目录装配、PipeServer 生命周期为下一批（可做，未及）。
+3. **Service.Tests 第一批已落（2026-11-23 08:xx 班，提交 39625a2 + b7e6913）**：新增 ServiceFactoryTests.cs 13 用例（43/43 绿，云端 CI run 45087482016 绿）。
+   - Service 分支覆盖 **41.0% → 56.9%**；ServiceHostFactory.CreateAsync 0% → 85.7%。
+   - 已覆盖：恢复路径+journal 重放+轮转、损坏 fs.journal 降级、损坏全文快照降级重建、有效全文快照恢复后内容检索命中、RebuildIndex 双作用域先清后建+双检查点、坏 JSON 负回执、PipeSession 空流/超限帧收尾、PipeServer 监听循环端到端+取消收班、ContentIndexer 检查点静默窗口+无日志空操作。
+   - 首建路径（MFT 真扫描）以 `OperatingSystem.IsWindows()` 守卫转云端 CI 实测（首建落快照、损坏快照降级首建两条，云端已跑绿）。
+   - 踩坑记录：FallbackEntry 第二参是 Size 不是 FileReference（引用号须从 EnumerateLivePaths 取）；夹具 JournalSink 写帧后必须 Dispose 释放句柄，否则 Windows 上检查点轮转删不掉打开中的日志文件（云端 CI 实测红灯一次）。
+   - Service 侧剩余缺口：Program 控制台/服务模式（被 Global 互斥体挡，Linux 跑不了，需云端 Windows 进程级实测）、UsnJournalListener/事件泵真源（同 NTFS 依赖，归第 1 项）、ServiceJsonContext 源生成桩（序列化器自动生成代码，意义有限）。
 4. 零星 50% 分支：FsIndexEngine Dispose catch 支路、HotTermCache LRU 空链路、Tokenizer CJK 边界 2 支、InvertedIndex 查询组合支路。
 
 ## 跑法备忘
