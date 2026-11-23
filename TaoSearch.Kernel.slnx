@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/TaoSearch.App.Core/TaoSearch.App.Core.csproj" />
     <Project Path="src/TaoSearch.Kernel.Contracts/TaoSearch.Kernel.Contracts.csproj" />
     <Project Path="src/TaoSearch.Kernel.FsIndex/TaoSearch.Kernel.FsIndex.csproj" />
     <Project Path="src/TaoSearch.Kernel.FullText/TaoSearch.Kernel.FullText.csproj" />
@@ -8,6 +9,7 @@
     <Project Path="src/TaoSearch.Service/TaoSearch.Service.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/TaoSearch.App.Core.Tests/TaoSearch.App.Core.Tests.csproj" />
     <Project Path="tests/TaoSearch.Kernel.Tests/TaoSearch.Kernel.Tests.csproj" />
     <Project Path="tests/TaoSearch.Service.Tests/TaoSearch.Service.Tests.csproj" />
   </Folder>
