@@ -119,10 +119,10 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
         }
         finally { hOut.Free(); }
         if (!ok) return null;
-        // USN_JOURNAL_DATA_V0 布局：UsnJournalID@0、NextUsn@8（2026-11-23 云端探针实测：
-        // @0=1.34e17 为典型日志 ID、@8=3.5e9 为典型 NextUsn；原注释误写 NextUsn@0 致两者取反，READ 恒败零事件）
+        // USN_JOURNAL_DATA 布局（ntifs.h 权威）：UsnJournalID@0、FirstUsn@8、NextUsn@16（56 字节）。
+        // 原取 @0/@8 实为 JournalID/FirstUsn，续读起点错拿 FirstUsn（云端探针实测：@0=1.34e17 为日志 ID、@8=3.5e9 为 FirstUsn）
         ulong journalId = BitConverter.ToUInt64(outBuf, 0);
-        long nextUsn = BitConverter.ToInt64(outBuf, 8);
+        long nextUsn = BitConverter.ToInt64(outBuf, 16);
         return (journalId, nextUsn);
     }
 

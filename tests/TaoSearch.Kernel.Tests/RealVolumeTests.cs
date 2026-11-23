@@ -194,10 +194,10 @@ public sealed class RealVolumeTests
             var qbuf = new byte[64];
             bool qok = DeviceIoControlPinned(h, FsctlQueryUsnJournal, null, qbuf, out uint qret);
             _output.WriteLine($"[probe] {label} QUERY_USN_JOURNAL ok={qok} err={Marshal.GetLastWin32Error()} ret={qret}"
-                + (qok ? $" journalId={BitConverter.ToUInt64(qbuf, 0)} nextUsn={BitConverter.ToInt64(qbuf, 8)}" : ""));
+                + (qok ? $" journalId={BitConverter.ToUInt64(qbuf, 0)} firstUsn={BitConverter.ToInt64(qbuf, 8)} nextUsn={BitConverter.ToInt64(qbuf, 16)}" : ""));
 
             // MFT_ENUM_DATA_V0 正确 24 字节布局（StartRef/LowUsn/HighUsn 各 8 字节）：
-            // 全量口径 (0, 0, MAX) 与零口径 (0,0,0) 双组合出证；12 字节旧布局已由上一轮探针实锤恒 err=1
+            // 全量口径 (0, 0, MAX) 与零口径 (0,0,0) 双组合出证
             foreach (var (lo, hi) in new[] { (0UL, ulong.MaxValue), (0UL, 0UL) })
             {
                 var input = new byte[24];
@@ -211,13 +211,14 @@ public sealed class RealVolumeTests
 
             if (qok)
             {
-                // READ_USN_JOURNAL_DATA_V0 32 字节：JournalID=@0、StartUsn=@8（USN_JOURNAL_DATA_V0 应答的真实偏移）
+                // READ_USN_JOURNAL_DATA_V0 32 字节：JournalID=@0、StartUsn=@8；
+                // StartUsn 取 QUERY 应答的 NextUsn@16（USN_JOURNAL_DATA = JournalID@0/FirstUsn@8/NextUsn@16）
                 var rin = new byte[32];
-                BitConverter.GetBytes(BitConverter.ToUInt64(qbuf, 0)).CopyTo(rin, 0);   // JournalID
-                BitConverter.GetBytes(BitConverter.ToInt64(qbuf, 8)).CopyTo(rin, 8);    // StartUsn = NextUsn
-                BitConverter.GetBytes(0xFFFFFFFFu).CopyTo(rin, 16);                     // ReasonMask
-                BitConverter.GetBytes(0u).CopyTo(rin, 20);                              // BytesToWaitFor
-                BitConverter.GetBytes(0UL).CopyTo(rin, 24);                             // Timeout
+                BitConverter.GetBytes(BitConverter.ToUInt64(qbuf, 0)).CopyTo(rin, 0);    // JournalID
+                BitConverter.GetBytes(BitConverter.ToInt64(qbuf, 16)).CopyTo(rin, 8);    // StartUsn = NextUsn
+                BitConverter.GetBytes(0xFFFFFFFFu).CopyTo(rin, 16);                      // ReasonMask
+                BitConverter.GetBytes(0u).CopyTo(rin, 20);                               // BytesToWaitFor
+                BitConverter.GetBytes(0UL).CopyTo(rin, 24);                              // Timeout
                 var rbuf = new byte[64 * 1024];
                 bool rok = DeviceIoControlPinned(h, FsctlReadUsnJournal, rin, rbuf, out uint rret);
                 _output.WriteLine($"[probe] {label} READ_USN_JOURNAL v0-32B ok={rok} err={Marshal.GetLastWin32Error()} ret={rret}");
@@ -232,9 +233,9 @@ public sealed class RealVolumeTests
     private static readonly object _gate = new();
 
     // ---- 诊断探针自包含 P/Invoke（不依赖产品互操作层，证据单源） ----
-    // FSCTL 控制码 = 0x90000 | (功能号 << 2)：ENUM=90、READ=94、QUERY=61（原 0x000900B4/BB 实为重解析点 FSCTL，已由两轮探针实锤）
-    private const uint FsctlEnumUsnData = 0x00090168;
-    private const uint FsctlReadUsnJournal = 0x00090178;
+    // FSCTL 控制码（ntifs.h 权威值）：ENUM=功能号44 METHOD_NEITHER=0x000900B3、READ=功能号46 METHOD_NEITHER=0x000900BB、QUERY=功能号61 METHOD_BUFFERED=0x000900F4
+    private const uint FsctlEnumUsnData = 0x000900B3;
+    private const uint FsctlReadUsnJournal = 0x000900BB;
     private const uint FsctlQueryUsnJournal = 0x000900F4;
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
