@@ -163,7 +163,8 @@ public class ServiceFactoryTests : IDisposable
         string fsJournal = SaveFsCheckpoint(fs, dataDir);
 
         // 检查点之后追加一条事件 → journal 里留下快照之外的一帧，恢复时须重放
-        fs.JournalSink = new JournalSink(fsJournal);
+        var fixtureSink = new JournalSink(fsJournal);
+        fs.JournalSink = fixtureSink;
         fs.ApplyEvent(new FileEvent
         {
             Kind = FileChangeKind.Created,
@@ -172,6 +173,7 @@ public class ServiceFactoryTests : IDisposable
             Path = fileC,
             UtcTimestamp = T1,
         });
+        fixtureSink.Dispose(); // 释放写句柄：Windows 上打开中的日志文件无法被轮转删除
         Assert.True(File.Exists(fsJournal));
 
         var host = await ServiceHostFactory.CreateAsync(volume, dataDir, CancellationToken.None);
