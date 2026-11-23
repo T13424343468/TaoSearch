@@ -65,13 +65,13 @@ internal static class MftInterop
     internal const uint OpenExisting = 3;
     internal const uint BackupSemantics = 0x02000000;
 
-    /// <summary>MFT 枚举入参：起始引用号 0 = 从头枚举。</summary>
-    [StructLayout(LayoutKind.Sequential)]
+    /// <summary>MFT 枚举入参（native MFT_ENUM_DATA_V0：起始引用号 8 字节 + 两个 USHORT 版本号；云端 Windows 实测校准）。</summary>
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
     internal struct MftEnumInput
     {
         public ulong StartFileReference;
-        public ulong LowVersion;   // 2
-        public ulong HighVersion;  // 2
+        public ushort LowVersion;   // 0 = MFT_ENUM_DATA_V0（原误写 ulong 且值 2：错位成 LowVersion=2/HighVersion=0 非法组合，FSCTL 返回错误 1）
+        public ushort HighVersion;  // 0
     }
 
     /// <summary>USN 记录头（V2，实际记录为变长，FileName 偏移按结构体计算）。</summary>

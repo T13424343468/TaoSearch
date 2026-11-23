@@ -79,7 +79,7 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
                 }
                 offset += record.RecordLength;
             }
-            readArgs.NextUsn = BitConverter.ToInt64(buffer, 0);   // 缓冲头 8 字节 = 下次续读 USN
+            readArgs.StartUsn = BitConverter.ToInt64(buffer, 0);   // 缓冲头 8 字节 = 下次续读 USN
         }
     }
 
@@ -111,8 +111,9 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
         var ok = MftInterop.DeviceIoControl(volume, MftInterop.FsctlQueryUsnJournal,
             0, 0, PinBytes(outBuf), (uint)outBuf.Length, out _, 0);
         if (!ok) return null;
+        // USN_JOURNAL_DATA_V0 布局：NextUsn@0、FirstUsn（即日志 ID）@8、MaxSizeUsn@16
+        long nextUsn = BitConverter.ToInt64(outBuf, 0);
         ulong journalId = BitConverter.ToUInt64(outBuf, 8);
-        long nextUsn = BitConverter.ToInt64(outBuf, 16);
         return (journalId, nextUsn);
     }
 
@@ -133,23 +134,24 @@ public sealed class UsnJournalListener : IFileEventSource, IDisposable
         finally { h.Free(); }
     }
 
-    private sealed class ReadJournalArgs(ulong journalId, long nextUsn)
+    /// <summary>
+    /// READ_USN_JOURNAL_DATA_V0 精确 32 字节布局：JournalID 8 + StartUsn 8 + ReasonMask 4 + BytesToWaitFor 4 + Timeout 8。
+    /// 原混合布局写 48 字节（既非 V0 的 32 也非 V1 的 48 正确字段序），输入尺寸校验不过 → ReadUsn 恒败零事件（云端 runner 实测）。
+    /// </summary>
+    private sealed class ReadJournalArgs(ulong journalId, long startUsn)
     {
         public ulong UsnJournalId = journalId;
-        public long NextUsn = nextUsn;
+        public long StartUsn = startUsn;
         public uint ReasonMask = 0xFFFFFFFF;
-        public ulong ReturnOnlyOnClose = 0;
+        public uint BytesToWaitFor = 0;   // 0 = 立即返回现有记录，不等待
         public ulong Timeout = 0;
-        public ulong BytesToWaitFor = 0;
-        public uint StartUsn = 1;
 
         public byte[] ToBytes()
         {
-            var b = new byte[8 + 8 + 4 + 8 + 8 + 8 + 4];
+            var b = new byte[8 + 8 + 4 + 4 + 8];
             using var ms = new MemoryStream(b);
             using var w = new BinaryWriter(ms);
-            w.Write(UsnJournalId); w.Write(NextUsn); w.Write(ReasonMask);
-            w.Write(ReturnOnlyOnClose); w.Write(Timeout); w.Write(BytesToWaitFor); w.Write(StartUsn);
+            w.Write(UsnJournalId); w.Write(StartUsn); w.Write(ReasonMask); w.Write(BytesToWaitFor); w.Write(Timeout);
             return b;
         }
     }
