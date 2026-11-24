@@ -305,12 +305,14 @@ public sealed class PipeServer(string pipeName, ServiceHost host)
     internal static NamedPipeServerStream CreateServerStream(string name)
     {
 #if WINDOWS
-        var security = new System.IO.Pipes.AccessControl.PipeSecurity();
-        security.AddAccessRule(new System.IO.Pipes.AccessControl.PipeAccessRule(
+        // .NET 10 口径：PipeSecurity/PipeAccessRule 命名空间是 System.IO.Pipes（程序集文件名才带 AccessControl）；
+        // 带 ACL 的管道须走 NamedPipeServerStreamAcl.Create 工厂（.NET Core 无 PipeSecurity 构造重载）
+        var security = new System.IO.Pipes.PipeSecurity();
+        security.AddAccessRule(new System.IO.Pipes.PipeAccessRule(
             new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.WorldSid, null),
-            System.IO.Pipes.AccessControl.PipeAccessRights.ReadWrite,
+            System.IO.Pipes.PipeAccessRights.ReadWrite,
             System.Security.AccessControl.AccessControlType.Allow));
-        return new NamedPipeServerStream(name, PipeDirection.InOut, 4,
+        return System.IO.Pipes.NamedPipeServerStreamAcl.Create(name, PipeDirection.InOut, 4,
             PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
 #else
         return new NamedPipeServerStream(name, PipeDirection.InOut, 4,
