@@ -13,7 +13,7 @@ param(
 $ScriptVersion = "msi-v2-1122"
 Write-Host "打包脚本版本: $ScriptVersion (若日志无此行, 说明运行的是旧脚本, 请全新目录重试)"
 $ErrorActionPreference = 'Stop'
-$ProductVersion = "0.1.0.15"
+$ProductVersion = "0.1.0.16"
 $UpgradeCode = "9A3E68D7-3E6A-49BF-B003-86C7A28EC6D5"
 $BundleUpgradeCode = "E65F0B4C-5C59-4CB8-95AE-565C781111ED"
 $publishRoot = (Resolve-Path $PublishDir).Path
