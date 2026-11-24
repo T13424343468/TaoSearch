@@ -31,6 +31,68 @@ public static class NativeMouse {
 "@
 }
 $script:blindFail = $false
+$script:popupReported = $false
+
+# 2026-11-24 二轮假绿教训：盲测绿场藏着服务 0xc0000005 系统错误弹窗（run 45227026290 实锤，
+# 「TaoSearch.Service.exe - System Error」在屏而账面 success）——补系统错误弹窗检测断言，弹窗即红
+if (-not ('NativePopupScan' -as [type])) {
+Add-Type @"
+using System;
+using System.Text;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public static class NativePopupScan {
+    public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder sb, int max);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    public static List<string> SystemErrorPopupTitles() {
+        var found = new List<string>();
+        EnumWindows((h, l) => {
+            if (!IsWindowVisible(h)) return true;
+            var c = new StringBuilder(256); GetClassName(h, c, 256);
+            if (c.ToString() != "#32770") return true;
+            var t = new StringBuilder(512); GetWindowText(h, t, 512);
+            string title = t.ToString();
+            if (title.Contains("System Error") || title.Contains("Exception Processing Message")) found.Add(title);
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+    public static int CloseSystemErrorPopups() {
+        int closed = 0;
+        EnumWindows((h, l) => {
+            if (!IsWindowVisible(h)) return true;
+            var c = new StringBuilder(256); GetClassName(h, c, 256);
+            if (c.ToString() != "#32770") return true;
+            var t = new StringBuilder(512); GetWindowText(h, t, 512);
+            string title = t.ToString();
+            if (title.Contains("System Error") || title.Contains("Exception Processing Message")) {
+                PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);   // WM_CLOSE：取证后关弹窗，不阻塞后续 UIA
+                closed++;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return closed;
+    }
+}
+"@
+}
+
+function Test-SystemErrorPopup {
+    $titles = [NativePopupScan]::SystemErrorPopupTitles()
+    foreach ($t in $titles) {
+        Log "SYSTEM ERROR POPUP DETECTED: $t"
+        if (-not $script:popupReported) {
+            $script:popupReported = $true
+            $findings.Add("B-x99 检测到系统错误弹窗「$t」——原生崩溃在屏（对应截图定谳，弹窗已关不阻塞后续）")
+            $script:blindFail = $true
+        }
+        [NativePopupScan]::CloseSystemErrorPopups() | Out-Null
+    }
+}
 
 function Log([string]$m) { Write-Host "[blind] $m" }
 function Shot([string]$name) {
@@ -43,6 +105,7 @@ function Shot([string]$name) {
         $g.Dispose(); $b.Dispose()
         Log "shot $name"
     } catch { Log "shot fail $name : $_" }
+    Test-SystemErrorPopup   # 每个取证点同步查弹窗（2026-11-24 假绿整改）
 }
 function Get-AppWindow([string]$titlePart) {
     $root = [System.Windows.Automation.AutomationElement]::RootElement
@@ -202,7 +265,7 @@ if ($w) {
 try {
     $w2 = Get-AppWindow 'TaoSearch'
     $settings = $w2.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '设置')))
-    if ($settings) { try { $settings.GetPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { try { $settings.SetFocus() } catch {} }; Start-Sleep -Seconds 3; Shot 'BL-xiaobai-05-settings' }
+    if ($settings) { try { $settings.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { try { $settings.SetFocus() } catch {} }; Start-Sleep -Seconds 3; Shot 'BL-xiaobai-05-settings' }
 } catch { Log "xiaobai settings: $_" }
 
 # ── 画像二：熟练（场景②③⑤：高频反复 + 低频致命 + 镜像规模）──
@@ -224,7 +287,7 @@ try {
     $w2 = Get-AppWindow 'TaoSearch'
     foreach ($label in @('暂停索引', '恢复索引', '墨白', '水墨')) {
         $el = $w2.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $label)))
-        if ($el) { try { $el.GetPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { try { $el.SetFocus() } catch {} }; Start-Sleep -Seconds 1 }
+        if ($el) { try { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() } catch { try { $el.SetFocus() } catch {} }; Start-Sleep -Seconds 1 }
     }
     Shot 'BL-shulian-03-settings-actions'
 } catch { Log "shulian settings: $_" }
@@ -234,13 +297,19 @@ Send-Text('%q'); Start-Sleep -Seconds 1
 
 # ── 画像三：搞破坏（场景③④⑤ + 9.8 机械遍历）──
 Log "persona=pohuai start"
-# 畸形输入灌入
+# 畸形输入灌入（2026-11-24 整改：①'a'*500 在数组字面量中被解析为 'a' * (500,'*')——逗号优先级高于 *，
+# 字符串重复拿到 Object[] 报 Cannot convert Object[] to Int32，加括号修复；②fuzz 串含 ^%~(){} 等
+# SendKeys 元字符会被解释（%SYSTEMROOT% 变 Alt+S、{ 组非法抛错），改剪贴板粘贴保真灌入）
 $w = Get-AppWindow 'TaoSearch'
 if ($w) {
     $w.SetFocus()
     Focus-SearchBox $w | Out-Null
-    $fuzz = @('a' * 500, '*', '?', 'file: && ||', '\..\..\..', "$([char]::ConvertFromUtf32(0x1F600)) emoji", "regex ( [ { * +", "' OR 1=1 --", '%SYSTEMROOT%', 'con.txt')
-    foreach ($f in $fuzz) { Send-Text('^a'); Send-Text($f); Start-Sleep -Milliseconds 600 }
+    $fuzz = @(('a' * 500), '*', '?', 'file: && ||', '\..\..\..', ([char]::ConvertFromUtf32(0x1F600) + ' emoji'), 'regex ( [ { * +', "' OR 1=1 --", '%SYSTEMROOT%', 'con.txt')
+    foreach ($f in $fuzz) {
+        Set-Clipboard -Value $f
+        Send-Text('^a'); Start-Sleep -Milliseconds 150
+        Send-Text('^v'); Start-Sleep -Milliseconds 600
+    }
     Shot 'BL-pohuai-01-fuzz-input'
 }
 # 并发同发：快速窗 + 主窗同时搜
@@ -300,5 +369,6 @@ $($findings -join "`n")
 "@ | Out-File (Join-Path $EvidenceDir 'findings.md') -Encoding utf8
 
 Log "blind run complete, evidence=$EvidenceDir"
+Test-SystemErrorPopup   # 收尾终扫：最后一段流程中的崩溃弹窗不漏检（2026-11-24 假绿整改）
 # 2026-11-24 假绿教训：盲测推进链路未走通必须红，禁止静默退出 0
 if ($script:blindFail) { Log "BLIND RUN FAILED (assertion(s) unmet)"; exit 1 }
