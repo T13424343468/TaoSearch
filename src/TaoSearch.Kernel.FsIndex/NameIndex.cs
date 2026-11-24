@@ -33,6 +33,12 @@ public sealed partial class NameIndex : IDisposable
 
     private bool _disposed;
 
+    // 线程安全（2026-11-24 盲测 0xc0000005 定谳）：服务端「先听后建」架构下 MFT 首建线程、USN 事件泵线程、
+    // IPC 查询线程并发进入本类，此前无锁——EnsureNamesCapacity 扩容 Free 旧聚合区时他线程仍持旧指针，
+    // use-after-free 原生 AV（TaoSearch.Service.exe - System Error 0xc0000005，run 45227026290 实锤）。
+    // 写走写锁、读走读锁；Search/EnumerateLive/SaveSnapshot 在锁内物化，锁外不持任何内部指针。
+    private readonly ReaderWriterLockSlim _gate = new(LockRecursionPolicy.NoRecursion);
+
     public unsafe NameIndex()
     {
         _namesCapacity = 1 << 16;                       // 64KB 起步
@@ -61,50 +67,83 @@ public sealed partial class NameIndex : IDisposable
     public unsafe void Upsert(long fileReference, long parentReference, string fileName, long size, DateTimeOffset modifiedUtc)
     {
         ThrowIfDisposed();
+        // 超 short 上限防护（慢路径全路径名可超 32KB，长路径 32767 字符口径）：
+        // (short) 截断为负会让 BuildPath/Search 按负长度取段，截断到合法 UTF-8 边界
         int nameLen = Encoding.UTF8.GetByteCount(fileName);
-        int nameOffset = AppendName(fileName, nameLen);
-
-        EnsureRecordsCapacity(_recordCount + 1);
-        int idx = _recordCount++;
-        _records[idx] = new Rec
+        if (nameLen > short.MaxValue)
         {
-            FileReference = fileReference,
-            ParentReference = parentReference,
-            Size = size,
-            ModifiedUtcTicks = modifiedUtc.UtcTicks,
-            NameOffset = nameOffset,
-            NameLength = (short)nameLen,
-            Flags = 0,
-        };
-
-        // 引用号已存在则覆盖记录（重命名/更新场景）：新记录顶掉旧记录，回退计数
-        if (TryFind(fileReference, out int existing))
-        {
-            _records[existing] = _records[idx];
-            _recordCount--;
-            return;
+            fileName = TruncateUtf8(fileName, short.MaxValue);
+            nameLen = short.MaxValue;
         }
 
-        if ((_count + 1) > _hashMask * LoadFactor) GrowHash();
-        InsertHash(fileReference, idx);
+        _gate.EnterWriteLock();
+        try
+        {
+            int nameOffset = AppendName(fileName, nameLen);
+
+            EnsureRecordsCapacity(_recordCount + 1);
+            int idx = _recordCount++;
+            _records[idx] = new Rec
+            {
+                FileReference = fileReference,
+                ParentReference = parentReference,
+                Size = size,
+                ModifiedUtcTicks = modifiedUtc.UtcTicks,
+                NameOffset = nameOffset,
+                NameLength = (short)nameLen,
+                Flags = 0,
+            };
+
+            // 引用号已存在则覆盖记录（重命名/更新场景）：新记录顶掉旧记录，回退计数
+            if (TryFind(fileReference, out int existing))
+            {
+                _records[existing] = _records[idx];
+                _recordCount--;
+                return;
+            }
+
+            if ((_count + 1) > _hashMask * LoadFactor) GrowHash();
+            InsertHash(fileReference, idx);
+        }
+        finally { _gate.ExitWriteLock(); }
+    }
+
+    /// <summary>截断字符串到指定 UTF-8 字节数（回退到非续字节边界，防截断出半个多字节字符）。</summary>
+    private static string TruncateUtf8(string s, int maxBytes)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(s);
+        if (bytes.Length <= maxBytes) return s;
+        int len = maxBytes;
+        while (len > 0 && (bytes[len] & 0xC0) == 0x80) len--;   // bytes[len] 是被丢弃的首字节，是续字节则回退
+        return Encoding.UTF8.GetString(bytes, 0, len);
     }
 
     public unsafe bool TryGet(long fileReference, out NameRecord record)
     {
         ThrowIfDisposed();
         record = default;
-        if (!TryFind(fileReference, out int idx)) return false;
-        record = ToNameRecord(in _records[idx]);
-        return true;
+        _gate.EnterReadLock();
+        try
+        {
+            if (!TryFind(fileReference, out int idx)) return false;
+            record = ToNameRecord(in _records[idx]);
+            return true;
+        }
+        finally { _gate.ExitReadLock(); }
     }
 
     public unsafe bool Remove(long fileReference)
     {
         ThrowIfDisposed();
-        if (!TryFind(fileReference, out int idx)) return false;
-        _records[idx].Flags |= RecFlagDeleted;
-        RemoveHash(fileReference);
-        return true;
+        _gate.EnterWriteLock();
+        try
+        {
+            if (!TryFind(fileReference, out int idx)) return false;
+            _records[idx].Flags |= RecFlagDeleted;
+            RemoveHash(fileReference);
+            return true;
+        }
+        finally { _gate.ExitWriteLock(); }
     }
 
     /// <summary>
@@ -114,58 +153,68 @@ public sealed partial class NameIndex : IDisposable
     public unsafe void Clear()
     {
         ThrowIfDisposed();
-        int capacity = _hashMask + 1;
-        for (int i = 0; i < capacity; i++)
+        _gate.EnterWriteLock();
+        try
         {
-            _keys[i] = 0;
-            _values[i] = -1;
+            int capacity = _hashMask + 1;
+            for (int i = 0; i < capacity; i++)
+            {
+                _keys[i] = 0;
+                _values[i] = -1;
+            }
+            _namesUsed = 0;
+            _recordCount = 0;
+            _count = 0;
         }
-        _namesUsed = 0;
-        _recordCount = 0;
-        _count = 0;
+        finally { _gate.ExitWriteLock(); }
     }
 
     /// <summary>按父引用号链向上重建完整路径（架构 §4.2：不存全路径）。深度上限防环。</summary>
     public unsafe string BuildPath(long fileReference)
     {
         ThrowIfDisposed();
-        if (!TryFind(fileReference, out int idx)) return string.Empty;
-
-        // 收集父链各段（路径重建非查询热路径，正确性优先）
-        var parts = new List<(int Offset, int Len)>(16);
-        long currentRef = fileReference;
-        int depth = 0;
-        while (currentRef != 0 && depth++ < 256)
+        _gate.EnterReadLock();
+        try
         {
-            if (!TryFind(currentRef, out int i)) break;
-            ref Rec r = ref _records[i];
-            parts.Add((r.NameOffset, r.NameLength));
-            currentRef = r.ParentReference;
-        }
+            if (!TryFind(fileReference, out int idx)) return string.Empty;
 
-        int totalBytes = 0;
-        for (int p = parts.Count - 1; p >= 0; p--)
-        {
-            totalBytes += parts[p].Len;
-            if (p > 0) totalBytes++;                        // 分隔符
-        }
-
-        var buffer = totalBytes > 0 ? new byte[totalBytes] : [];
-        int write = 0;
-        for (int p = parts.Count - 1; p >= 0; p--)
-        {
-            int len = parts[p].Len;
-            if (len > 0)
+            // 收集父链各段（路径重建非查询热路径，正确性优先）
+            var parts = new List<(int Offset, int Len)>(16);
+            long currentRef = fileReference;
+            int depth = 0;
+            while (currentRef != 0 && depth++ < 256)
             {
-                fixed (byte* dst = buffer)
-                {
-                    Buffer.MemoryCopy(_names + parts[p].Offset, dst + write, len, len);
-                }
+                if (!TryFind(currentRef, out int i)) break;
+                ref Rec r = ref _records[i];
+                parts.Add((r.NameOffset, r.NameLength));
+                currentRef = r.ParentReference;
             }
-            write += len;
-            if (p > 0) buffer[write++] = (byte)'\\';
+
+            int totalBytes = 0;
+            for (int p = parts.Count - 1; p >= 0; p--)
+            {
+                totalBytes += parts[p].Len;
+                if (p > 0) totalBytes++;                        // 分隔符
+            }
+
+            var buffer = totalBytes > 0 ? new byte[totalBytes] : [];
+            int write = 0;
+            for (int p = parts.Count - 1; p >= 0; p--)
+            {
+                int len = parts[p].Len;
+                if (len > 0)
+                {
+                    fixed (byte* dst = buffer)
+                    {
+                        Buffer.MemoryCopy(_names + parts[p].Offset, dst + write, len, len);
+                    }
+                }
+                write += len;
+                if (p > 0) buffer[write++] = (byte)'\\';
+            }
+            return Encoding.UTF8.GetString(buffer, 0, write);
         }
-        return Encoding.UTF8.GetString(buffer, 0, write);
+        finally { _gate.ExitReadLock(); }
     }
 
     /// <summary>
@@ -185,19 +234,34 @@ public sealed partial class NameIndex : IDisposable
         var firstCandidates = SearchValues.Create(
             !caseSensitive && IsAsciiLetter(first) ? [LowerAscii(first), UpperAscii(first)] : [first]);
 
-        var results = new List<long>();
-        for (int i = 0; i < _recordCount; i++)
+        // 读锁内完成全量扫描并物化（锁外不持内部指针；2026-11-24 并发 AV 整改口径）
+        _gate.EnterReadLock();
+        try
         {
-            ref Rec r = ref _records[i];
-            if ((r.Flags & RecFlagDeleted) != 0) continue;
-            var name = new ReadOnlySpan<byte>(_names + r.NameOffset, r.NameLength);
-            if (!ContainsUtf8(name, termBytes, firstCandidates, caseSensitive)) continue;
-            results.Add(r.FileReference);
+            var results = new List<long>();
+            for (int i = 0; i < _recordCount; i++)
+            {
+                ref Rec r = ref _records[i];
+                if ((r.Flags & RecFlagDeleted) != 0) continue;
+                var name = new ReadOnlySpan<byte>(_names + r.NameOffset, r.NameLength);
+                if (!ContainsUtf8(name, termBytes, firstCandidates, caseSensitive)) continue;
+                results.Add(r.FileReference);
+            }
+            return results;
         }
-        return results;
+        finally { _gate.ExitReadLock(); }
     }
 
-    public unsafe int Count => _count;
+    public unsafe int Count
+    {
+        get
+        {
+            ThrowIfDisposed();
+            _gate.EnterReadLock();
+            try { return _count; }
+            finally { _gate.ExitReadLock(); }
+        }
+    }
 
     /// <summary>
     /// 枚举全部活跃记录（快照导出用，非查询热路径；删除记录不产出）。
@@ -206,9 +270,15 @@ public sealed partial class NameIndex : IDisposable
     public IEnumerable<(long FileReference, long ParentReference, string FileName, long Size, DateTimeOffset ModifiedUtc)> EnumerateLive()
     {
         ThrowIfDisposed();
-        var rows = new List<(long FileReference, long ParentReference, string FileName, long Size, DateTimeOffset ModifiedUtc)>(_count);
-        CollectLive(rows);
-        return rows;
+        // 读锁内物化（锁外不持内部指针；2026-11-24 并发 AV 整改口径）
+        _gate.EnterReadLock();
+        try
+        {
+            var rows = new List<(long FileReference, long ParentReference, string FileName, long Size, DateTimeOffset ModifiedUtc)>(_count);
+            CollectLive(rows);
+            return rows;
+        }
+        finally { _gate.ExitReadLock(); }
     }
 
     private unsafe void CollectLive(List<(long FileReference, long ParentReference, string FileName, long Size, DateTimeOffset ModifiedUtc)> rows)
@@ -225,8 +295,16 @@ public sealed partial class NameIndex : IDisposable
     }
 
     /// <summary>当前实际分配的非托管内存（字节）——内存预算表（架构 §4.4）逐项实测口径。</summary>
-    public unsafe long AllocatedBytes =>
-        _namesCapacity + (long)_recordsCapacity * sizeof(Rec) + (long)(_hashMask + 1) * (sizeof(long) + sizeof(int));
+    public unsafe long AllocatedBytes
+    {
+        get
+        {
+            ThrowIfDisposed();
+            _gate.EnterReadLock();
+            try { return _namesCapacity + (long)_recordsCapacity * sizeof(Rec) + (long)(_hashMask + 1) * (sizeof(long) + sizeof(int)); }
+            finally { _gate.ExitReadLock(); }
+        }
+    }
 
     public void Dispose()
     {
@@ -236,13 +314,18 @@ public sealed partial class NameIndex : IDisposable
 
     private unsafe void Dispose(bool disposing)
     {
-        if (_disposed) return;
-        if (_names != null) NativeMemory.Free(_names);
-        if (_records != null) NativeMemory.Free(_records);
-        if (_keys != null) NativeMemory.Free(_keys);
-        if (_values != null) NativeMemory.Free(_values);
-        _names = null; _records = null; _keys = null; _values = null;
-        _disposed = true;
+        _gate.EnterWriteLock();
+        try
+        {
+            if (_disposed) return;
+            if (_names != null) NativeMemory.Free(_names);
+            if (_records != null) NativeMemory.Free(_records);
+            if (_keys != null) NativeMemory.Free(_keys);
+            if (_values != null) NativeMemory.Free(_values);
+            _names = null; _records = null; _keys = null; _values = null;
+            _disposed = true;
+        }
+        finally { _gate.ExitWriteLock(); }
     }
 
     private void ThrowIfDisposed()

@@ -45,55 +45,61 @@ public sealed partial class NameIndex
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(output);
 
-        int active = 0;
-        long nameBytes = 0;
-        for (int i = 0; i < _recordCount; i++)
+        // 读锁内完成全量写出（2026-11-24 并发 AV 整改口径：SaveCheckpoint 与 USN 事件泵并发）
+        _gate.EnterReadLock();
+        try
         {
-            ref Rec r = ref _records[i];
-            if ((r.Flags & RecFlagDeleted) != 0) continue;
-            active++;
-            nameBytes += r.NameLength;
+            int active = 0;
+            long nameBytes = 0;
+            for (int i = 0; i < _recordCount; i++)
+            {
+                ref Rec r = ref _records[i];
+                if ((r.Flags & RecFlagDeleted) != 0) continue;
+                active++;
+                nameBytes += r.NameLength;
+            }
+
+            Span<byte> header = stackalloc byte[SnapshotHeaderSize];
+            SnapshotMagic.CopyTo(header);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[4..], SnapshotVersion);
+            BinaryPrimitives.WriteInt32LittleEndian(header[8..], active);
+            BinaryPrimitives.WriteInt64LittleEndian(header[12..], nameBytes);
+            BinaryPrimitives.WriteUInt32LittleEndian(header[20..], Crc32.Compute(header[..20]));
+            output.Write(header);
+
+            // 不用 using：BufferedStream 释放会关闭底层流，调用方的流必须保持打开；
+            // 结尾只 Flush 把缓冲落到底层流，不 Dispose
+            Stream sink = output is BufferedStream bs ? bs : new BufferedStream(output, 1 << 20);
+            uint bodyCrc = 0xFFFF_FFFFu;
+
+            // 两遍写：先全部名字区，再全部记录区（与 LoadSnapshot 的块布局一致）
+            for (int i = 0; i < _recordCount; i++)
+            {
+                ref Rec r = ref _records[i];
+                if ((r.Flags & RecFlagDeleted) != 0) continue;
+                var name = new ReadOnlySpan<byte>(_names + r.NameOffset, r.NameLength);
+                sink.Write(name);
+                bodyCrc = Crc32.Update(bodyCrc, name);
+            }
+
+            byte[] recBuf = new byte[RecSize];
+            int recOffset = 0;
+            for (int i = 0; i < _recordCount; i++)
+            {
+                ref Rec r = ref _records[i];
+                if ((r.Flags & RecFlagDeleted) != 0) continue;
+                WriteRecord(recBuf, r.FileReference, r.ParentReference, r.Size, r.ModifiedUtcTicks, recOffset, r.NameLength);
+                sink.Write(recBuf);
+                bodyCrc = Crc32.Update(bodyCrc, recBuf);
+                recOffset += r.NameLength;
+            }
+
+            Span<byte> trailer = stackalloc byte[4];
+            BinaryPrimitives.WriteUInt32LittleEndian(trailer, Crc32.Final(bodyCrc));
+            sink.Write(trailer);
+            sink.Flush();
         }
-
-        Span<byte> header = stackalloc byte[SnapshotHeaderSize];
-        SnapshotMagic.CopyTo(header);
-        BinaryPrimitives.WriteUInt32LittleEndian(header[4..], SnapshotVersion);
-        BinaryPrimitives.WriteInt32LittleEndian(header[8..], active);
-        BinaryPrimitives.WriteInt64LittleEndian(header[12..], nameBytes);
-        BinaryPrimitives.WriteUInt32LittleEndian(header[20..], Crc32.Compute(header[..20]));
-        output.Write(header);
-
-        // 不用 using：BufferedStream 释放会关闭底层流，调用方的流必须保持打开；
-        // 结尾只 Flush 把缓冲落到底层流，不 Dispose
-        Stream sink = output is BufferedStream bs ? bs : new BufferedStream(output, 1 << 20);
-        uint bodyCrc = 0xFFFF_FFFFu;
-
-        // 两遍写：先全部名字区，再全部记录区（与 LoadSnapshot 的块布局一致）
-        for (int i = 0; i < _recordCount; i++)
-        {
-            ref Rec r = ref _records[i];
-            if ((r.Flags & RecFlagDeleted) != 0) continue;
-            var name = new ReadOnlySpan<byte>(_names + r.NameOffset, r.NameLength);
-            sink.Write(name);
-            bodyCrc = Crc32.Update(bodyCrc, name);
-        }
-
-        byte[] recBuf = new byte[RecSize];
-        int recOffset = 0;
-        for (int i = 0; i < _recordCount; i++)
-        {
-            ref Rec r = ref _records[i];
-            if ((r.Flags & RecFlagDeleted) != 0) continue;
-            WriteRecord(recBuf, r.FileReference, r.ParentReference, r.Size, r.ModifiedUtcTicks, recOffset, r.NameLength);
-            sink.Write(recBuf);
-            bodyCrc = Crc32.Update(bodyCrc, recBuf);
-            recOffset += r.NameLength;
-        }
-
-        Span<byte> trailer = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32LittleEndian(trailer, Crc32.Final(bodyCrc));
-        sink.Write(trailer);
-        sink.Flush();
+        finally { _gate.ExitReadLock(); }
     }
 
     /// <summary>从快照恢复：校验并重建哈希；损坏抛 InvalidDataException。</summary>
