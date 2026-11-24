@@ -59,7 +59,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         {
             var status = await _gateway.GetIndexStatusAsync(ct);
             FileCount = status.FileCount.ToString("N0");
-            IndexState = status.FilenameIndexReady ? "就绪" : "建索引中";
+            IndexState = status.FilenameIndexReady ? "就绪"
+                : status.FilenamePaused ? "已暂停"
+                : "建索引中";
             PendingQueue = status.PendingContentQueue.ToString("N0");
         }
         catch (Exception)
@@ -92,7 +94,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 ? await _gateway.ResumeAsync()
                 : await _gateway.PauseAsync();
             if (ack.Ok) Paused = !Paused;
-            return ack.Ok ? (Paused ? "已暂停全文索引" : "已恢复全文索引") : $"操作失败：{ErrorText(ack.Error)}";
+            // 0.1.0.18：暂停现在同时停文件名与内容两路，文案不再只说全文
+            return ack.Ok ? (Paused ? "已暂停索引" : "已恢复索引") : $"操作失败：{ErrorText(ack.Error)}";
         }
         catch (Exception)
         {

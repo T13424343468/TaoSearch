@@ -30,6 +30,13 @@ public sealed partial class OnboardingWindow : Window
         catch { /* 图标缺失不阻断 */ }
         WindowPlacement.CenterOnScreen(this, 760, 560, topMost: true);
         UpdateMethodText();
+        // 真机红灯修复（0.1.0.18）：首建已开始但未完成时强退重开，恢复到进度页继续看进度，
+        // 不再重复下发 Rebuild（服务侧有快照会自动续建，重复下发会从头重扫）
+        if (_settings.FirstIndexingStarted && !_settings.OnboardingCompleted)
+        {
+            SetStep(3);
+            StartPolling();
+        }
     }
 
     /// <summary>方式文案按真实权限口径（0.1.0.9）：无管理员权限不再宣称 MFT 直读。</summary>
@@ -80,7 +87,9 @@ public sealed partial class OnboardingWindow : Window
             : @"D:\TaoSearch\Index";
         _settings.IndexScope = ScopeUser.IsChecked == true ? "user-folders"
             : ScopeCustom.IsChecked == true ? "custom" : "drive-d";
-        _settings.OnboardingCompleted = true;
+        // 真机红灯修复（0.1.0.18）：「完成」标志改到 OnFinish 才置位；
+        // 此处只记录「首建已开始」，强退重开可回到进度页
+        _settings.FirstIndexingStarted = true;
         _settings.Save();
 
         SetStep(3);
@@ -114,6 +123,12 @@ public sealed partial class OnboardingWindow : Window
             try
             {
                 var status = await _gateway.GetIndexStatusAsync(ct);
+                if (status.FilenamePaused && !status.FilenameIndexReady)
+                {
+                    ProgressCount.Text = "已暂停，点「继续」恢复扫描";
+                }
+                else
+                {
                 ProgressCount.Text = status.FilenameIndexReady
                     ? $"索引建立完成，共 {status.FileCount:N0} 个文件"
                     : $"已收录 {status.FileCount:N0} 个文件，仍在继续…";
@@ -129,6 +144,7 @@ public sealed partial class OnboardingWindow : Window
                     PauseButton.Visibility = Visibility.Collapsed;
                     FinishButton.Visibility = Visibility.Visible;
                     return;
+                }
                 }
             }
             catch (OperationCanceledException) { return; }
@@ -162,6 +178,9 @@ public sealed partial class OnboardingWindow : Window
     private void OnFinish(object sender, RoutedEventArgs e)
     {
         _pollCts?.Cancel();
+        // 真机红灯修复（0.1.0.18）：引导完成标志在此置位，首建中途强退不再被误判为已完成
+        _settings.OnboardingCompleted = true;
+        _settings.Save();
         CloseAndShowMain();
     }
 

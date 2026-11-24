@@ -9,6 +9,7 @@ public sealed class AppSettings
     public static AppSettings Instance { get; private set; } = Load();
 
     public bool OnboardingCompleted { get; set; }
+    public bool FirstIndexingStarted { get; set; }   // 0.1.0.18：首建已开始但未完成，重开回进度页
     public string Theme { get; set; } = "shuimo";                 // shuimo=浅色 / mobai=深色
     public bool ShowQuickOnStartup { get; set; }
     public bool QuickHotkeyEnabled { get; set; } = true;          // Alt+Q

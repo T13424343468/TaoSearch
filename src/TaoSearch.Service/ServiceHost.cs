@@ -85,11 +85,13 @@ public sealed class ServiceHost
                     return;
 
                 case IpcMethod.PauseIndexing:
+                    _fs.Pause();      // 0.1.0.18：暂停同时停文件名首建（真机实锤：此前只停内容管线）
                     _content.Pause();
                     await WriteAckAsync(writeFrame, method, seq, ok: true, error: null, ct).ConfigureAwait(false);
                     return;
 
                 case IpcMethod.ResumeIndexing:
+                    _fs.Resume();
                     _content.Resume();
                     await WriteAckAsync(writeFrame, method, seq, ok: true, error: null, ct).ConfigureAwait(false);
                     return;
@@ -176,6 +178,7 @@ public sealed class ServiceHost
             PendingContentQueue = _content.PendingCount,
             FailedFiles = _content.FailedFiles,
             FilenameUsingSlowPath = fsStatus.UsedFallback,
+            FilenamePaused = fsStatus.Paused,
         };
     }
 

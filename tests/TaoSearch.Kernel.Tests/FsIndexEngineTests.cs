@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using TaoSearch.Kernel.Contracts;
 using TaoSearch.Kernel.FsIndex;
@@ -142,5 +142,31 @@ public class FsIndexEngineTests : IDisposable
         {
             await foreach (var e in _channel.Reader.ReadAllAsync(ct)) yield return e;
         }
+    }
+
+    [Fact]
+    public async Task Pause_StopsUpsert_ResumeContinues()
+    {
+        // 0.1.0.18 真机红灯修复：暂停必须真的停文件名首建（此前暂停只管内容管线，真机实锤没停）
+        var engine = new FsIndexEngine(
+            mftScanOverride: (root, sink, ct) =>
+            {
+                sink(100, 5, "a.txt");
+                return MftScanOutcome.Ok(1, 1);
+            });
+        engine.Pause();
+        Assert.True(engine.IsPaused);
+
+        // 扫描在暂停点同步阻塞，必须放后台线程，否则测试线程被堵死、Resume 永远执行不到
+        var buildTask = Task.Run(() => engine.BuildAsync("C:\\"));
+        await Task.Delay(500); // 暂停期间扫描停在 PausePoint，索引不前进
+        Assert.Equal(0, engine.Snapshot().FileCount);
+
+        engine.Resume();
+        var result = await buildTask;
+        Assert.Equal(1, result.FileCount);
+        Assert.False(engine.IsPaused);
+        Assert.True(engine.Snapshot().Ready);
+        Assert.True(engine.Snapshot().Paused == false);
     }
 }

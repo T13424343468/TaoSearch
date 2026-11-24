@@ -286,12 +286,15 @@ public class ServiceHostIpcTests : IDisposable
         Assert.Equal(12u, seq1);
         Assert.True(ReadJson<AckResponse>(body1).Ok);
         Assert.True(_content.IsPaused);
+        // 0.1.0.18 真机红灯修复：暂停必须同时停文件名首建，状态上报 FilenamePaused
+        Assert.True(_fs.IsPaused);
 
         await SendAsync((ushort)IpcMethod.ResumeIndexing, seq: 13, ReadOnlyMemory<byte>.Empty);
         var (_, seq2, body2) = await ReadFrameAsync();
         Assert.Equal(13u, seq2);
         Assert.True(ReadJson<AckResponse>(body2).Ok);
         Assert.False(_content.IsPaused);
+        Assert.False(_fs.IsPaused);
     }
 
     [Fact]

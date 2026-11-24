@@ -310,8 +310,13 @@ public class ServiceSupervisorTests
 {
     private static void ResetAttempted()
     {
-        var field = typeof(ServiceSupervisor).GetField("_attempted", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        field!.SetValue(null, 0);
+        // 0.1.0.18：进程级只试一次改为节流拉起，重置节流时间戳与并发闸
+        var last = typeof(ServiceSupervisor).GetField("_lastStartTicks",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        last!.SetValue(null, 0L);
+        var inflight = typeof(ServiceSupervisor).GetField("_startInFlight",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        inflight!.SetValue(null, 0);
     }
 
     [Fact]

@@ -86,7 +86,7 @@ public class SettingsViewModelTests
         var vm = new SettingsViewModel(gw);
         var msg = await vm.TogglePauseAsync();
         Assert.True(vm.Paused);
-        Assert.Equal("已暂停全文索引", msg);
+        Assert.Equal("已暂停索引", msg);
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public class SettingsViewModelTests
         await vm.TogglePauseAsync();
         var msg = await vm.TogglePauseAsync();
         Assert.False(vm.Paused);
-        Assert.Equal("已恢复全文索引", msg);
+        Assert.Equal("已恢复索引", msg);
     }
 
     [Fact]

@@ -160,4 +160,6 @@ public sealed record IndexStatus
     public required IReadOnlyList<string> FailedFiles { get; init; }
     /// <summary>文件名索引是否走慢路径（无管理员权限，MFT 直读不可用）——壳层据此提示提权加速。</summary>
     public bool FilenameUsingSlowPath { get; init; }
+    /// <summary>文件名首建是否被用户暂停（0.1.0.18）——壳层据此显示暂停态。</summary>
+    public bool FilenamePaused { get; init; }
 }

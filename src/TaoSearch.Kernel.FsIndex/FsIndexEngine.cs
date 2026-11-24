@@ -25,6 +25,8 @@ public sealed record FsIndexStatus
     public required long FileCount { get; init; }
     public required bool Ready { get; init; }
     public required bool Building { get; init; }
+    /// <summary>首建是否被用户暂停（0.1.0.18）。</summary>
+    public bool Paused { get; init; }
     public required bool UsedFallback { get; init; }
     public required long AllocatedBytes { get; init; }
     public string? LastError { get; init; }
@@ -50,6 +52,11 @@ public sealed class FsIndexEngine : IDisposable
     private bool _building;
     private bool _usedFallback;
     private string? _lastError;
+
+    // 首建暂停（真机实锤 0.1.0.18：暂停按钮此前只停内容管线，文件名扫描照跑）。
+    // PausePoint 在扫描循环内协作等待：暂停期间不再收录新文件，Resume 后原地继续。
+    private readonly object _pauseGate = new();
+    private volatile bool _fsPaused;
 
     /// <summary>事件日志写入点（M3 持久化）：先写后应用，强杀后重放不丢事件；恢复重放路径不挂 sink。</summary>
     public IJournalSink? JournalSink { get; set; }
@@ -81,6 +88,33 @@ public sealed class FsIndexEngine : IDisposable
         }
     }
 
+    /// <summary>暂停首建扫描：扫描循环在下一个收录点停靠（0.1.0.18）。</summary>
+    public void Pause() => _fsPaused = true;
+
+    /// <summary>恢复首建扫描：唤醒停靠中的扫描循环，原地继续。</summary>
+    public void Resume()
+    {
+        _fsPaused = false;
+        lock (_pauseGate) Monitor.PulseAll(_pauseGate);
+    }
+
+    /// <summary>首建是否处于暂停态（壳层状态展示用）。</summary>
+    public bool IsPaused => _fsPaused;
+
+    /// <summary>扫描循环暂停点：暂停态下阻塞等待，恢复或取消后返回。</summary>
+    private void PausePoint(CancellationToken ct)
+    {
+        if (!_fsPaused) return;
+        lock (_pauseGate)
+        {
+            while (_fsPaused)
+            {
+                if (Monitor.Wait(_pauseGate, 300)) break;
+            }
+        }
+        ct.ThrowIfCancellationRequested();
+    }
+
     /// <summary>首建：MFT 全量枚举入索引；失败（权限不足等）降级慢路径。完成后状态 Ready。</summary>
     public async Task<FsIndexBuildResult> BuildAsync(string volumeRoot, CancellationToken ct = default)
     {
@@ -97,7 +131,11 @@ public sealed class FsIndexEngine : IDisposable
             var scan = _mftScanOverride ?? ((root, sink, token) => new MftScanner().Scan(root, sink, token));
             var outcome = scan(
                 volumeRoot,
-                (fileRef, parentRef, name) => _index.Upsert(fileRef, parentRef, name, 0, DateTimeOffset.MinValue),
+                (fileRef, parentRef, name) =>
+                {
+                    PausePoint(ct);
+                    _index.Upsert(fileRef, parentRef, name, 0, DateTimeOffset.MinValue);
+                },
                 ct);
 
             if (outcome.Success)
@@ -240,6 +278,7 @@ public sealed class FsIndexEngine : IDisposable
                 FileCount = _index.Count,
                 Ready = _ready,
                 Building = _building,
+                Paused = _fsPaused,
                 UsedFallback = _usedFallback,
                 AllocatedBytes = _index.AllocatedBytes,
                 LastError = _lastError,
@@ -253,6 +292,7 @@ public sealed class FsIndexEngine : IDisposable
         long syntheticRef = -1;
         await foreach (var entry in enumerate(volumeRoot, ct).WithCancellation(ct).ConfigureAwait(false))
         {
+            PausePoint(ct);
             // 慢路径无 NTFS 引用号：合成负数引用号，parent=0，名字存全路径（BuildPath 直接返回）
             _index.Upsert(syntheticRef--, 0, entry.FullPath, entry.Size, entry.ModifiedUtc);
         }
