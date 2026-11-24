@@ -21,3 +21,29 @@
 ## 遗留观察项（不判红，报老板知悉）
 
 - 坏设置→默认值→重走引导：设置文件损坏后应用走默认值并重现首启引导。行为本身可辩护（设置不可读即视为首装），但「用户索引设置是否一并重置」属产品决策，收口时随对账表呈报。
+
+---
+
+# 扮演验收看后记录·第二轮（六.10 看后留痕，2026-11-24）
+
+- 班次：roleplay-accept run 45313534527（completed success，7m8s，main@1fab25b）
+- 背景：服务 0xc0000005 根因定谳为 NameIndex 并发竞态（MFT 首建线程 / USN 事件泵 / IPC 查询并发无锁，EnsureNamesCapacity 扩容 use-after-free），修复 commit 3e2fc3d（读写锁全程护体 + 超限截断）；扮演脚本假绿口子整改 commit 1fab25b（每取证点+收尾终扫 #32770 系统错误弹窗，命中置红 exit 1）。
+- 定谳：**真绿，CRASH 0**。观察 36 条、录屏帧 104、截图 19 张；弹窗检测全程零命中。
+
+## 逐屏亲看（六.10 留痕）
+
+| 证据 | 亲看结论 |
+| --- | --- |
+| RP-P3-quick.png | Alt+Q 快速窗正常唤起叠主窗，主窗 readme 命中 1 条，索引就绪 45,471 文件——上轮热键 GC 崩溃路径（RP-P3）修复后保持绿 |
+| RP-D3-weird-queries.png | 怪查询后主窗空态「准备好了·索引已就绪」，无系统错误弹窗——服务 0xc0000005 并发 AV 修复后未见复发 |
+| RP-N4-onboarding-done.png | 引导索引完成页 45,471 文件、MFT 直读（NTFS 主文件表），「完成」按钮就绪 |
+| RP-N6-search-readme.png | readme 命中 1 条（C:\taosearch-rp-corpus\docs\readme.txt，38 B），路径完整 |
+
+## 日志亲扫
+
+- service.log / service.err.log / app.log：0 处 System Error / 0xc0000005 / FailFast / Exception 关键字。
+- 结论：扮演班真绿，无假绿迹象。
+
+## 证据缺口备注
+
+- 本轮证据包仍缺 collected-service-crash.log / svc-*.log（与首轮同缺口）：服务日志采集口径（落 %LOCALAPPDATA% 还是 stdout 重定向）待统一，下轮补齐采集项。
