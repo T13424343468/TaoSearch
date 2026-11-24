@@ -297,6 +297,27 @@ public static class ServiceHostFactory
 /// </summary>
 public sealed class PipeServer(string pipeName, ServiceHost host)
 {
+    /// <summary>
+    /// 管道 ACL（真机红灯修复）：服务以管理员/LocalSystem 运行时，Windows 命名管道默认 DACL
+    /// 只给创建者与 Administrators 完全访问，普通权限壳层连上后写请求帧会被拒。
+    /// 显式放行 WorldSid 读写，壳层无论何种权限均可连通；沙箱 Linux 无 ACL 概念走默认构造。
+    /// </summary>
+    internal static NamedPipeServerStream CreateServerStream(string name)
+    {
+#if WINDOWS
+        var security = new System.IO.Pipes.AccessControl.PipeSecurity();
+        security.AddAccessRule(new System.IO.Pipes.AccessControl.PipeAccessRule(
+            new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.WorldSid, null),
+            System.IO.Pipes.AccessControl.PipeAccessRights.ReadWrite,
+            System.Security.AccessControl.AccessControlType.Allow));
+        return new NamedPipeServerStream(name, PipeDirection.InOut, 4,
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
+#else
+        return new NamedPipeServerStream(name, PipeDirection.InOut, 4,
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+#endif
+    }
+
     public async Task RunAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -304,8 +325,7 @@ public sealed class PipeServer(string pipeName, ServiceHost host)
             NamedPipeServerStream client;
             try
             {
-                client = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 4,
-                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                client = CreateServerStream(pipeName);
             }
             catch (IOException) when (!ct.IsCancellationRequested)
             {

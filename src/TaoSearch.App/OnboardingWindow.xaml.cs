@@ -117,6 +117,10 @@ public sealed partial class OnboardingWindow : Window
                 ProgressCount.Text = status.FilenameIndexReady
                     ? $"索引建立完成，共 {status.FileCount:N0} 个文件"
                     : $"已收录 {status.FileCount:N0} 个文件，仍在继续…";
+                if (status.FilenameUsingSlowPath && !status.FilenameIndexReady)
+                {
+                    ProgressCount.Text += "（未以管理员运行，正在慢速扫描；取消后以管理员身份重新打开可秒级完成）";
+                }
                 if (status.FilenameIndexReady)
                 {
                     IndexProgress.IsIndeterminate = false;

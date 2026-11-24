@@ -183,6 +183,8 @@ public class ServiceHostIpcTests : IDisposable
         Assert.True(status.FilenameIndexReady);
         Assert.True(status.ContentIndexReady);
         Assert.Empty(status.FailedFiles);
+        // 慢路径标记透传（真机红灯修复）：MFT 必败桩 → 状态必须如实上报慢路径，壳层据此提示提权
+        Assert.True(status.FilenameUsingSlowPath);
     }
 
     [Fact]

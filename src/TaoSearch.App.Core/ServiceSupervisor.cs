@@ -27,13 +27,36 @@ public static class ServiceSupervisor
             var exe = Path.Combine(AppContext.BaseDirectory, "TaoSearch.Service.exe");
             if (!File.Exists(exe)) return;
 
-            using var process = Process.Start(new ProcessStartInfo(exe)
+            // 管理员优先（真机红灯修复）：MFT 直读需管理员权限，普通权限启动必降级慢路径
+            // （真机实锤：几十万文件慢速扫描十分钟不完成）。先以 runas 请求提权（UAC 弹窗），
+            // 用户拒绝或非管理员账户再降级普通启动——可用性优先，慢但能用。
+            bool started = false;
+            try
             {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = AppContext.BaseDirectory,
-            });
-            if (process is null) return;
+                using var elevated = Process.Start(new ProcessStartInfo(exe)
+                {
+                    UseShellExecute = true,
+                    Verb = "runas",
+                    WorkingDirectory = AppContext.BaseDirectory,
+                });
+                started = elevated is not null;
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or UnauthorizedAccessException or PlatformNotSupportedException)
+            {
+                started = false; // 用户拒绝 UAC 或无提权通道：降级普通启动
+            }
+
+            if (!started)
+            {
+                using var process = Process.Start(new ProcessStartInfo(exe)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = AppContext.BaseDirectory,
+                });
+                started = process is not null;
+            }
+            if (!started) return;
 
             // 服务恢复快照路径秒级就绪；首建路径管道在索引建完后才监听，这里只等短窗口，
             // 未就绪交由调用方轮询接续（OnboardingWindow.PollLoopAsync / MainWindow 轮询）

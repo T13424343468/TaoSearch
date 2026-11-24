@@ -205,6 +205,10 @@ public sealed partial class MainWindow : Window
             IndexStatusText.Text = status.FilenameIndexReady
                 ? $"索引就绪 · {status.FileCount:N0} 个文件"
                 : $"建索引中 · 已收录 {status.FileCount:N0} 个文件";
+            if (status.FilenameUsingSlowPath)
+            {
+                IndexStatusText.Text += "（未以管理员运行，正在慢速扫描；关闭后以管理员身份重新打开可秒级完成）";
+            }
         }
         catch
         {

@@ -175,6 +175,7 @@ public sealed class ServiceHost
             ContentIndexReady = _content.IsReady,
             PendingContentQueue = _content.PendingCount,
             FailedFiles = _content.FailedFiles,
+            FilenameUsingSlowPath = fsStatus.UsedFallback,
         };
     }
 
