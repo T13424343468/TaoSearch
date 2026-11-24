@@ -310,7 +310,8 @@ public sealed class PipeServer(string pipeName, ServiceHost host)
         var security = new System.IO.Pipes.PipeSecurity();
         security.AddAccessRule(new System.IO.Pipes.PipeAccessRule(
             new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.WorldSid, null),
-            System.IO.Pipes.PipeAccessRights.ReadWrite | System.IO.Pipes.PipeAccessRights.ReadAttributes,
+            System.IO.Pipes.PipeAccessRights.ReadWrite | System.IO.Pipes.PipeAccessRights.ReadAttributes
+                | System.IO.Pipes.PipeAccessRights.CreateNewInstance,
             System.Security.AccessControl.AccessControlType.Allow));
         return System.IO.Pipes.NamedPipeServerStreamAcl.Create(name, PipeDirection.InOut, 4,
             PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
