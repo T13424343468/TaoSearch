@@ -505,6 +505,11 @@ if ($win) {
 # ================================================================
 Log '== 画像三：搞破坏 =='
 # D1：索引中途杀服务再恢复
+# 教训（0.1.0.18 扮演 RP-D1）：壳层自愈会在服务被杀后自行拉起（0.1.0.18 新能力），
+# 与脚本手动重启抢单实例互斥体——脚本实例报「互斥体被占用」退出，且壳层实例快照恢复
+# 期（4.5 万文件）不监听，脚本 30s 探测窗内管道未就绪被误记红。先停壳层隔离场景，
+# 单测服务自身的杀后恢复；壳层自愈路径由 D1 后重启壳层验证（管道由壳层探测拉起）。
+Stop-App
 Stop-ServiceProc
 Remove-Item "$EvidenceDir\rpdata-kill" -Recurse -Force -ErrorAction SilentlyContinue
 $pipeUp = Start-Service "$EvidenceDir\rpdata-kill"
@@ -518,6 +523,7 @@ if ($script:svc -and -not $script:svc.HasExited) {
     else { Ledger '杀服务后重启成功（管道就绪）' }
 } else { Flag 'RP-D1b' '服务重启场景中进程意外退出' $false }
 Check-CrashLog 'D-kill'
+Start-App | Out-Null   # 恢复壳层：后续画像与 D2+ 依赖主窗
 # D2：设置文件损坏（写垃圾字节）后启动壳层
 Stop-App
 Set-Content "$settingsDir\settings.json" '{ corrupted json !!! [[[' -Encoding UTF8
