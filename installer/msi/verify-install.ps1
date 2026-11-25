@@ -67,6 +67,10 @@ if ($PublishDir -and (Test-Path $PublishDir)) {
 }
 $arp = Get-ChildItem $runKey -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq "TaoSearch" }
 Assert ($null -ne $arp) "卸载注册项已登记"
+# 卸载列表图标: DisplayIcon 必须指向产品图标 (真机反馈: 卸载列表白板)
+$arpDisplayIcons = @($arp | ForEach-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayIcon } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+Assert ($arpDisplayIcons.Count -gt 0) "卸载注册项含 DisplayIcon 图标"
+Log ("STEP2 卸载列表图标: " + ($arpDisplayIcons -join ' | '))
 Assert (Test-Path $ctxKey) "右键菜单已注册"
 $svc = Get-Service -Name 'TaoSearchService' -ErrorAction SilentlyContinue
 Assert ($null -ne $svc) "TaoSearchService 服务已注册"

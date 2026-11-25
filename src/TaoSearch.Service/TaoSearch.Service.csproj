@@ -2,12 +2,14 @@
   <PropertyGroup>
     <RootNamespace>TaoSearch.Service</RootNamespace>
     <OutputType>Exe</OutputType>
-    <Version>0.1.0.18</Version>
-    <FileVersion>0.1.0.18</FileVersion>
+    <Version>0.1.0.19</Version>
+    <FileVersion>0.1.0.19</FileVersion>
     <!-- 多目标：net10.0 供沙箱/单元测试（纯托管核心），net10.0-windows 供真机服务壳（ServiceBase） -->
     <TargetFrameworks>net10.0;net10.0-windows</TargetFrameworks>
     <!-- Linux 沙箱交叉编译 Windows 目标所需 -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- 任务管理器/服务列表图标: 复用壳层产品图标, 仅嵌入 exe 不随发布复制 -->
+    <ApplicationIcon Condition="'$(TargetFramework)' == 'net10.0-windows'">..\TaoSearch.App\Assets\taosearch.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
     <FrameworkReference Include="Microsoft.WindowsDesktop.App" />

@@ -13,7 +13,7 @@ param(
 $ScriptVersion = "msi-v2-1122"
 Write-Host "打包脚本版本: $ScriptVersion (若日志无此行, 说明运行的是旧脚本, 请全新目录重试)"
 $ErrorActionPreference = 'Stop'
-$ProductVersion = "0.1.0.18"
+$ProductVersion = "0.1.0.19"
 $UpgradeCode = "9A3E68D7-3E6A-49BF-B003-86C7A28EC6D5"
 $BundleUpgradeCode = "E65F0B4C-5C59-4CB8-95AE-565C781111ED"
 $publishRoot = (Resolve-Path $PublishDir).Path
@@ -23,6 +23,16 @@ if (-not (Test-Path (Join-Path $publishRoot 'TaoSearch.App.exe'))) {
 if (-not (Test-Path (Join-Path $publishRoot 'TaoSearch.Service.exe'))) {
     throw "发布目录里没找到 TaoSearch.Service.exe: $PublishDir"
 }
+
+# ---- 卸载列表图标: MSI 走 ARPPRODUCTICON, 引导安装器走 Bundle IconSourceFile (真机反馈: 卸载列表白板) ----
+$icoSource = Join-Path $publishRoot 'Assets\taosearch.ico'
+if (-not (Test-Path $icoSource)) {
+    $icoSource = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\src\TaoSearch.App\Assets\taosearch.ico'))
+}
+if (-not (Test-Path $icoSource)) {
+    throw "没找到产品图标 taosearch.ico (发布目录与仓库路径均不存在)"
+}
+$icoSourceXml = [System.Security.SecurityElement]::Escape($icoSource.Replace('\', '/'))
 
 # ---- 枚举发布文件: 目录树(支持多级) + 组件清单 ----
 # 服务主程序单列组件（注册 Windows 服务需 KeyPath+ServiceInstall, 不进通用枚举）
@@ -89,6 +99,9 @@ $wxs = @"
   <Package Codepage="936" Name="TaoSearch" Manufacturer="Tao" Version="$ProductVersion"
            UpgradeCode="$UpgradeCode" Scope="perMachine" Compressed="yes">
     <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="已安装了更新版本的 TaoSearch，如需重装请先在“应用”中卸载。" AllowSameVersionUpgrades="yes" />
+    <!-- 卸载列表 (程序和功能) 图标: Icon 进 MSI Icon 表, ARPPRODUCTICON 指向它 -->
+    <Icon Id="TaoSearchIcon" SourceFile="$icoSourceXml" />
+    <Property Id="ARPPRODUCTICON" Value="TaoSearchIcon" />
     <!-- 默认装 D 盘 (D:\Program Files\TaoSearch, 界面可改): 制度 D-1/九-3 默认目录要求;
          目录同名属性覆盖: PathEdit 控件绑定 INSTALLFOLDER 属性, Burn 经 MsiProperty 传入同名属性;
          Secure=yes: Burn 提升权限安装时命令行属性须列入 SecureCustomProperties 才能传到服务端, 否则被忽略 -->
@@ -274,7 +287,8 @@ $bundleWxs = @"
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Bundle Name="TaoSearch" Manufacturer="Tao" Version="$ProductVersion"
-          UpgradeCode="$BundleUpgradeCode" Compressed="yes">
+          UpgradeCode="$BundleUpgradeCode" Compressed="yes"
+          IconSourceFile="$icoSourceXml">
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication Theme="rtfLargeLicense" LicenseFile="$([System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'license.rtf')))" ShowVersion="yes" />
     </BootstrapperApplication>
