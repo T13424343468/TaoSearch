@@ -346,7 +346,9 @@ $balArg = if ($BalExtPath) { $BalExtPath } else { "WixToolset.Bal.wixext" }
 $utilArg = if ($UtilExtPath) { $UtilExtPath } else { "WixToolset.Util.wixext" }
 $bindArgs = @()
 if ($RuntimeDir) { $bindArgs = @("-b", $RuntimeDir) }
-& $WixExe build $bundlePath -pdbtype none @bindArgs -ext $balArg -ext $utilArg -sw1161 -o $exe 2>&1 | Tee-Object -FilePath (Join-Path $outFull "bundle-build.log")
+# -arch x64: 引导引擎必须与产品同为 x64。缺省时 WiX 按 x86 编引擎, Burn 注册项会写进
+#   32 位视图 (WOW6432Node), 64 位枚举看不到, 卸载列表口径也随之分裂 (2026-11-25 排障实证)
+& $WixExe build $bundlePath -arch x64 -pdbtype none @bindArgs -ext $balArg -ext $utilArg -sw1161 -o $exe 2>&1 | Tee-Object -FilePath (Join-Path $outFull "bundle-build.log")
 if ($LASTEXITCODE -ne 0) {
     Write-Host "打包配置已保存: $bundlePath (排错用, 请把此文件与上方完整报错一并发出)"
     throw "WiX 构建引导安装器失败"

@@ -65,17 +65,31 @@ if ($PublishDir -and (Test-Path $PublishDir)) {
     Log ("STEP2 文件数: 发布 {0} / 已装 {1}" -f $pubCount, $instCount)
     Assert ($instCount -eq $pubCount) "安装文件数与发布产物一致"
 }
-$arp = Get-ChildItem $runKey -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq "TaoSearch" }
+# 卸载登记项可能落在 64 位或 32 位视图 (WOW6432Node), 两个视图都枚举
+$arpViews = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+)
+$arp = $arpViews | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } | Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq "TaoSearch" }
 Assert ($null -ne $arp) "卸载注册项已登记"
 # 诊断留痕: 逐条列出 TaoSearch 卸载项的键名与 DisplayIcon (定位图标缺失来源)
 foreach ($k in @($arp)) {
     $p = Get-ItemProperty $k.PSPath -ErrorAction SilentlyContinue
     Log ("STEP2 卸载项: 键={0} DisplayName={1} DisplayIcon={2}" -f $k.PSChildName, $p.DisplayName, ($p.DisplayIcon ?? '<空>'))
 }
-# 卸载列表图标: DisplayIcon 必须指向产品图标 (真机反馈: 卸载列表白板)
-$arpDisplayIcons = @($arp | ForEach-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayIcon } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-Assert ($arpDisplayIcons.Count -gt 0) "卸载注册项含 DisplayIcon 图标"
-Log ("STEP2 卸载列表图标: " + ($arpDisplayIcons -join ' | '))
+# 卸载列表图标: 引导安装器 (Burn) 的登记项必须带 DisplayIcon 指向缓存引导 exe (真机反馈: 卸载列表白板)。
+# 注意: MSI 产品键不写 DisplayIcon (微软文档口径, MSI 的 ARP 图标走 ARPPRODUCTICON 由安装器 API 提供),
+#   故只对非 msiexec 的登记项 (即 Burn 引导包登记项) 断言 DisplayIcon
+$bundleArp = @($arp | Where-Object { $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue; $p.UninstallString -and (([string]$p.UninstallString) -notmatch '(?i)msiexec\.exe') })
+Assert ($bundleArp.Count -gt 0) "引导安装器卸载登记项存在"
+foreach ($k in @($bundleArp)) {
+    $p = Get-ItemProperty $k.PSPath -ErrorAction SilentlyContinue
+    $ico = [string]$p.DisplayIcon
+    Assert (-not [string]::IsNullOrWhiteSpace($ico)) "卸载注册项含 DisplayIcon 图标"
+    $icoExe = ($ico -split ',')[0].Trim('"')
+    Assert ($icoExe -and (Test-Path $icoExe)) "DisplayIcon 指向存在的文件"
+    Log ("STEP2 卸载列表图标: " + $ico)
+}
 Assert (Test-Path $ctxKey) "右键菜单已注册"
 $svc = Get-Service -Name 'TaoSearchService' -ErrorAction SilentlyContinue
 Assert ($null -ne $svc) "TaoSearchService 服务已注册"
@@ -137,7 +151,7 @@ Log "STEP3 启动验证通过: 进程存活 + 窗口句柄 + 标题匹配 + 截�
 Log "STEP4 卸载"
 # 卸载优先走 Burn 引导包登记项 (其 UninstallString 指向 Package Cache 里的引导 exe);
 # 若只匹配到 MSI 登记项 (MsiExec.exe /I{guid}), 则改用 msiexec /x 卸载
-$arpEntries = Get-ChildItem $runKey -ErrorAction SilentlyContinue | ForEach-Object {
+$arpEntries = $arpViews | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } | ForEach-Object {
     $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
     if ($props.DisplayName -eq "TaoSearch" -and $props.UninstallString -like "*exe*") {
         [pscustomobject]@{ Key = $_; Unstr = [string]$props.UninstallString }
@@ -165,7 +179,7 @@ if ($bundleEntry) {
 }
 Start-Sleep -Seconds 3
 Assert (-not (Test-Path (Join-Path $InstallDir $exeName))) "主程序文件已清除"
-$arpAfter = Get-ChildItem $runKey -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq "TaoSearch" }
+$arpAfter = $arpViews | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } | Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq "TaoSearch" }
 Assert ($null -eq $arpAfter) "卸载注册项已清除"
 Assert (-not (Test-Path $ctxKey)) "右键菜单已清除"
 $svcU = Get-Service -Name 'TaoSearchService' -ErrorAction SilentlyContinue
