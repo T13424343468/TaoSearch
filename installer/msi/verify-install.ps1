@@ -67,6 +67,11 @@ if ($PublishDir -and (Test-Path $PublishDir)) {
 }
 $arp = Get-ChildItem $runKey -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq "TaoSearch" }
 Assert ($null -ne $arp) "卸载注册项已登记"
+# 诊断留痕: 逐条列出 TaoSearch 卸载项的键名与 DisplayIcon (定位图标缺失来源)
+foreach ($k in @($arp)) {
+    $p = Get-ItemProperty $k.PSPath -ErrorAction SilentlyContinue
+    Log ("STEP2 卸载项: 键={0} DisplayName={1} DisplayIcon={2}" -f $k.PSChildName, $p.DisplayName, ($p.DisplayIcon ?? '<空>'))
+}
 # 卸载列表图标: DisplayIcon 必须指向产品图标 (真机反馈: 卸载列表白板)
 $arpDisplayIcons = @($arp | ForEach-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayIcon } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 Assert ($arpDisplayIcons.Count -gt 0) "卸载注册项含 DisplayIcon 图标"
